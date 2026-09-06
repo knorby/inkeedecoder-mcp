@@ -1,25 +1,113 @@
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resetConfig } from "../src/config.js";
-import {
-  createTestClient,
-  jsonResponse,
-  type TestHarness,
-  textOf,
-} from "./helpers.js";
+import { DEFAULT_BASE_URL } from "../src/constants.js";
+import { createTestClient, type TestHarness, textOf } from "./helpers.js";
 
 /**
- * Integration tests: a real Client calls a real McpServer in-process.
+ * Integration tests: a real Client calls a real McpServer in-process, and the
+ * tools drive the real `@knorby/inkeedecoder-client` against captured HTML.
  *
  * Assert on `structuredContent` for the happy path. Failures — schema
- * rejections, missing credentials, API errors — come back as an ordinary
- * result with `isError: true`, never as a thrown error.
+ * rejections, unusable ids, HTTP errors — come back as an ordinary result with
+ * `isError: true`, never as a thrown error.
+ *
+ * The fixtures are real pages captured from inkeedecoder.com (see
+ * tests/fixtures/README.md), so the parsers exercise the markup the site
+ * actually serves rather than a hand-written approximation.
  */
+
+interface Ref {
+  name: string;
+  slug: string;
+  path: string;
+  url: string;
+}
+
+interface Page<T> {
+  items: T[];
+  page: number;
+  hasMore: boolean;
+  nextPageUrl?: string;
+}
+
+/** Narrows `structuredContent` to the shape a tool documents. */
+function structured<T>(result: {
+  structuredContent?: Record<string, unknown> | undefined;
+}): T {
+  return result.structuredContent as unknown as T;
+}
+
+/** Maps a requested URL to the captured page that stands for it. */
+function fixtureFor(url: URL): string | undefined {
+  const path = url.pathname.replace(/\/+$/, "") || "/";
+  const query = url.searchParams.get("query")?.toLowerCase() ?? "";
+
+  switch (path) {
+    case "/search": {
+      const tab = url.searchParams.get("activetab");
+      const ppage = url.searchParams.get("ppage");
+      if (tab === "products" && ppage) {
+        return "search-squalane-products-page2.html";
+      }
+      if (query === "the ordinary") return "search-the-ordinary.html";
+      if (query.startsWith("squalane")) return "search-squalane.html";
+      return undefined;
+    }
+    case "/search/product":
+      return "search-products-advanced.html";
+    case "/products/the-ordinary-retinol-1-in-squalane":
+      return "product-the-ordinary-retinol-1-in-squalane.html";
+    case "/ingredients/squalane":
+      return "ingredient-squalane.html";
+    case "/ingredients/tocopherol":
+      return "ingredient-tocopherol.html";
+    case "/brands/the-ordinary":
+      return "brand-the-ordinary.html";
+    case "/ingredient-functions/emollient":
+      return "ingredient-function-emollient.html";
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Serves the captured pages in place of the site, and records every URL the
+ * server asked for — which is how the URL-handling assertions work.
+ */
+function stubSite(): { calls: string[] } {
+  const calls: string[] = [];
+
+  const fetchMock = vi.fn(async (input: unknown) => {
+    const url = new URL(String(input));
+    calls.push(url.toString());
+
+    const file = fixtureFor(url);
+    if (!file) {
+      return new Response("not found", {
+        status: 404,
+        statusText: "Not Found",
+      });
+    }
+    const html = readFileSync(
+      new URL(`./fixtures/${file}`, import.meta.url),
+      "utf8",
+    );
+    return new Response(html, {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" },
+    });
+  });
+
+  vi.stubGlobal("fetch", fetchMock);
+  return { calls };
+}
+
 describe("server", () => {
   let harness: TestHarness;
 
   beforeEach(() => {
     resetConfig();
-    process.env.EXAMPLE_API_KEY = "test-key";
   });
 
   afterEach(async () => {
@@ -28,13 +116,19 @@ describe("server", () => {
     await harness?.close();
   });
 
-  it("advertises the example tools, resource, and prompt", async () => {
+  it("advertises the INKEEDecoder tools, resource, and prompt", async () => {
     harness = await createTestClient();
 
-    const tools = await harness.client.listTools();
-    expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
-      "example_ping",
-      "example_search_items",
+    const { tools } = await harness.client.listTools();
+    expect(tools.map((tool) => tool.name).sort()).toEqual([
+      "inkeedecoder_get_brand",
+      "inkeedecoder_get_ingredient",
+      "inkeedecoder_get_ingredient_function",
+      "inkeedecoder_get_ingredient_products",
+      "inkeedecoder_get_product",
+      "inkeedecoder_ping",
+      "inkeedecoder_search",
+      "inkeedecoder_search_products",
     ]);
 
     const resources = await harness.client.listResources();
@@ -44,34 +138,58 @@ describe("server", () => {
 
     const prompts = await harness.client.listPrompts();
     expect(prompts.prompts.map((prompt) => prompt.name)).toContain(
-      "example_summarize",
+      "analyze_ingredients",
     );
   });
 
-  it("marks read-only tools with annotations", async () => {
+  it("marks every tool read-only and non-destructive", async () => {
     harness = await createTestClient();
     const { tools } = await harness.client.listTools();
-    const ping = tools.find((tool) => tool.name === "example_ping");
 
-    expect(ping?.annotations).toMatchObject({
-      readOnlyHint: true,
-      destructiveHint: false,
-    });
+    for (const tool of tools) {
+      expect(tool.annotations, tool.name).toMatchObject({
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+      });
+      expect(tool.title, tool.name).toBeTruthy();
+      expect(tool.description, tool.name).toBeTruthy();
+    }
+  });
+
+  it("describes every input field", async () => {
+    harness = await createTestClient();
+    const { tools } = await harness.client.listTools();
+
+    for (const tool of tools) {
+      const properties = (
+        tool.inputSchema as unknown as {
+          properties?: Record<string, { description?: string }>;
+        }
+      ).properties;
+      for (const [name, field] of Object.entries(properties ?? {})) {
+        expect(field.description, `${tool.name}.${name}`).toBeTruthy();
+      }
+    }
   });
 });
 
-describe("example_ping", () => {
+describe("inkeedecoder_ping", () => {
   let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
 
   afterEach(async () => {
     vi.unstubAllGlobals();
     await harness?.close();
   });
 
-  it("returns pong and echoes a message", async () => {
+  it("echoes a message and reports the base URL", async () => {
     harness = await createTestClient();
     const result = await harness.client.callTool({
-      name: "example_ping",
+      name: "inkeedecoder_ping",
       arguments: { message: "hi" },
     });
 
@@ -79,27 +197,34 @@ describe("example_ping", () => {
     expect(result.structuredContent).toMatchObject({
       ok: true,
       reply: "pong: hi",
+      baseUrl: DEFAULT_BASE_URL,
     });
     expect(textOf(result)).toBe("pong: hi");
   });
 
-  it("returns a bare pong without arguments", async () => {
+  it("honours a custom base URL", async () => {
+    process.env.INKEEDECODER_BASE_URL = "https://mirror.example.com";
+    resetConfig();
     harness = await createTestClient();
+
     const result = await harness.client.callTool({
-      name: "example_ping",
+      name: "inkeedecoder_ping",
       arguments: {},
     });
 
-    expect(result.structuredContent).toMatchObject({ reply: "pong" });
+    expect(result.structuredContent).toMatchObject({
+      reply: "pong",
+      baseUrl: "https://mirror.example.com",
+    });
+    delete process.env.INKEEDECODER_BASE_URL;
   });
 });
 
-describe("example_search_items", () => {
+describe("inkeedecoder_search", () => {
   let harness: TestHarness;
 
   beforeEach(() => {
     resetConfig();
-    process.env.EXAMPLE_API_KEY = "test-key";
   });
 
   afterEach(async () => {
@@ -108,108 +233,547 @@ describe("example_search_items", () => {
     await harness?.close();
   });
 
-  const stubApi = (body: unknown, init?: ResponseInit) => {
-    const fetchMock = vi.fn(async () => jsonResponse(body, init));
-    vi.stubGlobal("fetch", fetchMock);
-    return fetchMock;
-  };
-
-  it("returns markdown by default with the total and item titles", async () => {
-    stubApi({
-      total: 3,
-      items: [
-        { id: "1", title: "First item", url: "https://example.com/1" },
-        { id: "2", title: "Second item" },
-      ],
-    });
+  it("returns both tabs and says how to continue", async () => {
+    stubSite();
     harness = await createTestClient();
 
     const result = await harness.client.callTool({
-      name: "example_search_items",
-      arguments: { query: "item" },
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane" },
     });
 
     expect(result.isError).toBeFalsy();
-    expect(result.structuredContent).toMatchObject({
-      total: 3,
-      count: 2,
-      offset: 0,
-      hasMore: true,
-      nextOffset: 2,
-    });
-    expect(textOf(result)).toContain("First item");
-    expect(textOf(result)).toContain("Second item");
+    const out = structured<{
+      query: string;
+      products: Page<Ref>;
+      ingredients: Page<Ref>;
+    }>(result);
+
+    expect(out.query).toBe("squalane");
+    expect(out.products.items).toHaveLength(50);
+    expect(out.products.hasMore).toBe(true);
+    expect(out.ingredients.items).toEqual([
+      expect.objectContaining({ name: "Squalane", slug: "squalane" }),
+    ]);
+    expect(out.ingredients.hasMore).toBe(false);
+
+    expect(textOf(result)).toContain("Squalane");
+    expect(textOf(result)).toContain("page: 2");
   });
 
-  it("returns JSON when response_format is json", async () => {
-    stubApi({ total: 1, items: [{ id: "1", title: "Only item" }] });
+  it("fetches only the requested tab, in one request", async () => {
+    const { calls } = stubSite();
     harness = await createTestClient();
 
     const result = await harness.client.callTool({
-      name: "example_search_items",
-      arguments: { query: "item", response_format: "json" },
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane", tab: "products" },
     });
 
-    expect(JSON.parse(textOf(result))).toMatchObject({
-      total: 1,
-      hasMore: false,
-    });
-    expect(result.structuredContent).not.toHaveProperty("nextOffset");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("activetab=products");
+
+    const out = structured<{
+      tab: string;
+      results: Page<Ref>;
+      ingredients?: Page<Ref>;
+    }>(result);
+    expect(out.tab).toBe("products");
+    expect(out.results.items).toHaveLength(50);
+    expect(out).not.toHaveProperty("ingredients");
   });
 
-  it("sends the query, paging, and auth to the API", async () => {
-    const fetchMock = stubApi({ total: 0, items: [] });
-    harness = await createTestClient();
-
-    await harness.client.callTool({
-      name: "example_search_items",
-      arguments: { query: "item", limit: 5, offset: 10 },
-    });
-
-    const url = new URL(String(fetchMock.mock.calls[0]?.[0]));
-    expect(url.pathname).toBe("/v1/items");
-    expect(url.searchParams.get("q")).toBe("item");
-    expect(url.searchParams.get("limit")).toBe("5");
-    expect(url.searchParams.get("offset")).toBe("10");
-  });
-
-  it("reports missing credentials instead of crashing", async () => {
-    delete process.env.EXAMPLE_API_KEY;
-    resetConfig();
+  it("requests the page it was asked for", async () => {
+    const { calls } = stubSite();
     harness = await createTestClient();
 
     const result = await harness.client.callTool({
-      name: "example_search_items",
-      arguments: { query: "item" },
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane", tab: "products", page: 2 },
     });
 
-    expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain("EXAMPLE_API_KEY");
+    expect(calls[0]).toContain("ppage=2");
+    const out = structured<{ results: Page<Ref> }>(result);
+    expect(out.results.page).toBe(2);
+    expect(out.results.items[0]?.name).toBe("Skinome Squalane Oil Cleanser");
   });
 
-  it("maps API errors to actionable messages", async () => {
-    stubApi({ message: "unauthorized" }, { status: 401 });
+  it("rejects an empty query", async () => {
+    stubSite();
     harness = await createTestClient();
 
     const result = await harness.client.callTool({
-      name: "example_search_items",
-      arguments: { query: "item" },
-    });
-
-    expect(result.isError).toBe(true);
-    expect(textOf(result)).toContain("API key was rejected");
-  });
-
-  it("rejects arguments that fail the input schema", async () => {
-    stubApi({ total: 0, items: [] });
-    harness = await createTestClient();
-
-    const result = await harness.client.callTool({
-      name: "example_search_items",
-      arguments: { query: "a" },
+      name: "inkeedecoder_search",
+      arguments: { query: "" },
     });
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain("Invalid arguments");
+  });
+});
+
+describe("inkeedecoder_search_products", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("sends the ingredient filters to the advanced search", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_search_products",
+      arguments: {
+        query: "the ordinary",
+        include: ["Squalane"],
+        exclude: ["Fragrance"],
+      },
+    });
+
+    const url = calls[0] ?? "";
+    expect(url).toContain("/search/product");
+    expect(url).toContain("query=the+ordinary");
+    expect(url).toContain("include=Squalane");
+    expect(url).toContain("exclude=Fragrance");
+    expect(url).not.toContain("include-mode");
+
+    const out = structured<Page<Ref>>(result);
+    expect(out.items).toHaveLength(21);
+    expect(out.hasMore).toBe(false);
+  });
+
+  it("passes include_mode=any through", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    await harness.client.callTool({
+      name: "inkeedecoder_search_products",
+      arguments: {
+        query: "serum",
+        include: ["Niacinamide", "Squalane"],
+        include_mode: "any",
+      },
+    });
+
+    expect(calls[0]).toContain("include-mode=any");
+  });
+
+  it("refuses an unfiltered catalogue walk", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_search_products",
+      arguments: {},
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("at least one ingredient");
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("link handling", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("resolves an old incidecoder.com URL through the new site", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: {
+        id: "https://incidecoder.com/products/the-ordinary-retinol-1-in-squalane?utm_source=chat#reviews",
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    // Only the path is used, and it is fetched from the configured base URL —
+    // an old link never contacts the old domain.
+    expect(calls[0]).toBe(
+      `${DEFAULT_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
+    );
+  });
+
+  it("accepts a current inkeedecoder.com URL and a bare slug", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: {
+        id: "https://inkeedecoder.com/products/the-ordinary-retinol-1-in-squalane",
+      },
+    });
+    await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "the-ordinary-retinol-1-in-squalane" },
+    });
+
+    expect(calls).toEqual([
+      `${DEFAULT_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
+      `${DEFAULT_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
+    ]);
+  });
+
+  it("rejects a URL from another site", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "https://example.com/products/some-product" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("not an INKEEDecoder link");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("points at the right tool when the link is the wrong kind of page", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "https://inkeedecoder.com/ingredients/squalane" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("inkeedecoder_get_ingredient");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("reads the base URL from the environment", async () => {
+    process.env.INKEEDECODER_BASE_URL = "https://mirror.example.com";
+    resetConfig();
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_brand",
+      arguments: { id: "the-ordinary" },
+    });
+
+    // The stub serves fixtures by path, so what this proves is where the
+    // request was sent: ids are always resolved against the configured base.
+    expect(result.isError).toBeFalsy();
+    expect(calls[0]).toBe("https://mirror.example.com/brands/the-ordinary");
+    delete process.env.INKEEDECODER_BASE_URL;
+  });
+});
+
+describe("inkeedecoder_get_product", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("returns the product with its brand and ingredient list", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "the-ordinary-retinol-1-in-squalane" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const out = structured<{
+      name: string;
+      brand?: Ref;
+      ingredients?: (Ref & { ourTake?: string })[];
+      longDescriptions?: unknown[];
+      skimTable?: unknown[];
+    }>(result);
+
+    expect(out.name).toBe("Retinol 1% In Squalane");
+    expect(out.brand?.name).toBe("The Ordinary");
+    expect(out.ingredients).toHaveLength(8);
+    expect(out.ingredients?.[0]).toMatchObject({
+      name: "Squalane",
+      slug: "squalane",
+      ourTake: "goodie",
+    });
+
+    expect(textOf(result)).toContain("# Retinol 1% In Squalane");
+    expect(textOf(result)).toContain("Squalane — /ingredients/squalane");
+  });
+
+  it("leaves the expensive sections out until asked", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const lean = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "the-ordinary-retinol-1-in-squalane" },
+    });
+    expect(structured<Record<string, unknown>>(lean)).not.toHaveProperty(
+      "longDescriptions",
+    );
+    expect(structured<Record<string, unknown>>(lean)).not.toHaveProperty(
+      "skimTable",
+    );
+
+    const verbose = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: {
+        id: "the-ordinary-retinol-1-in-squalane",
+        long_descriptions: true,
+        skim_table: true,
+        full_name: true,
+      },
+    });
+
+    const out = structured<{
+      fullName?: string;
+      longDescriptions?: unknown[];
+      skimTable?: unknown[];
+    }>(verbose);
+    expect(out.fullName).toBe("The Ordinary Retinol 1% In Squalane");
+    expect(out.longDescriptions).toHaveLength(8);
+    expect(out.skimTable).toHaveLength(8);
+    expect(textOf(verbose)).toContain("long descriptions (8)");
+  });
+
+  it("maps a missing page to an actionable error", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "no-such-product" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("not found");
+    expect(textOf(result)).toContain("inkeedecoder_search");
+  });
+});
+
+describe("inkeedecoder_get_ingredient", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("returns the rating, functions, and safety data", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient",
+      arguments: { id: "squalane" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const out = structured<{
+      name: string;
+      ourTake: string | null;
+      irritancy?: string;
+      comedogenicity?: string;
+      functions?: Ref[];
+      details?: string;
+    }>(result);
+
+    expect(out.name).toBe("Squalane");
+    expect(out.ourTake).toBe("goodie");
+    expect(out.irritancy).toBe("0");
+    expect(out.comedogenicity).toBe("1");
+    expect(out.functions?.map((fn) => fn.name)).toContain("emollient");
+    expect(out.details).toBeUndefined();
+
+    expect(textOf(result)).toContain("Rating: goodie");
+  });
+
+  it("adds the long writeup, CosIng data, and references on request", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient",
+      arguments: {
+        id: "https://incidecoder.com/ingredients/squalane",
+        details: true,
+        cosing: true,
+        proof: true,
+      },
+    });
+
+    const out = structured<{
+      details?: string;
+      proof?: string[];
+      cosing?: { cas?: string };
+    }>(result);
+
+    expect(out.details?.length).toBeGreaterThan(500);
+    expect(out.proof).toHaveLength(1);
+    expect(out.cosing?.cas).toBe("111-01-3");
+    expect(textOf(result)).toContain("CAS 111-01-3");
+  });
+});
+
+describe("inkeedecoder_get_ingredient_products", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("lists products containing the ingredient", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient_products",
+      arguments: { id: "squalane" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const out = structured<{
+      products: Page<Ref>;
+      knownAmountProducts?: unknown[];
+    }>(result);
+
+    expect(out.products.items).toHaveLength(50);
+    expect(out.products.hasMore).toBe(true);
+    expect(out).not.toHaveProperty("knownAmountProducts");
+    expect(textOf(result)).toContain("page: 2");
+  });
+
+  it("pages with uoffset and can include known amounts", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient_products",
+      arguments: { id: "squalane", page: 2 },
+    });
+    expect(calls[0]).toContain("uoffset=1");
+
+    const withAmounts = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient_products",
+      arguments: { id: "squalane", include_known_amount: true },
+    });
+
+    const out = structured<{
+      knownAmountProducts?: {
+        name: string;
+        percent?: string;
+        brand?: string;
+      }[];
+    }>(withAmounts);
+    expect(out.knownAmountProducts).toHaveLength(2);
+    expect(out.knownAmountProducts?.[0]).toMatchObject({
+      name: "Flawless Neutralising Gel",
+      percent: "5.0",
+    });
+    expect(textOf(withAmounts)).toContain("5.0%");
+  });
+});
+
+describe("inkeedecoder_get_brand", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("returns the brand and one page of its products", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_brand",
+      arguments: { id: "the-ordinary" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const out = structured<{ name: string; products: Page<Ref> }>(result);
+
+    expect(out.name).toBe("The Ordinary");
+    expect(out.products.items).toHaveLength(50);
+    expect(out.products.hasMore).toBe(true);
+    expect(textOf(result)).toContain("# The Ordinary");
+  });
+});
+
+describe("inkeedecoder_get_ingredient_function", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("returns the function, its description, and its ingredients", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient_function",
+      arguments: { id: "emollient" },
+    });
+
+    expect(result.isError).toBeFalsy();
+    const out = structured<{
+      name: string;
+      description?: string;
+      ingredients: Page<Ref>;
+    }>(result);
+
+    expect(out.name).toBe("emollient");
+    expect(out.description).toContain("soft, smooth");
+    expect(out.ingredients.items).toHaveLength(50);
+    expect(out.ingredients.hasMore).toBe(true);
   });
 });

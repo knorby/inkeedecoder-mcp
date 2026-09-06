@@ -22,6 +22,12 @@
 
 default_stages: [pre-commit]
 
+# tests/fixtures holds pages captured verbatim from inkeedecoder.com: the
+# whitespace and line-ending hooks would rewrite them, and a rewritten capture
+# is no longer a faithful test input. (The secret scanners take
+# `pass_filenames: false` and scan the working tree, so they still cover them.)
+exclude: ^tests/fixtures/
+
 repos:
   # --- General file checks ---
   # https://github.com/pre-commit/pre-commit-hooks

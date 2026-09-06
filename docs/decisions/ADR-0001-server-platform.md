@@ -1,14 +1,14 @@
-# ADR-0001: MCP server template — SDK v2, stdio, ESM-only
+# ADR-0001: Server platform — SDK v2, stdio, ESM-only
 
 - **Status:** Accepted
 - **Date:** 2026-09-05
 
 ## Context
 
-This repo started as a generic TypeScript library template (dual ESM/CJS
-output, no runtime concern). It is being repurposed as a starter for local MCP
-servers that wrap existing API/SDK libraries and are launched by a host
-(Claude Code, VS Code, Cursor) or run with `npx`.
+This repo was created from a starter for local MCP servers that wrap existing
+API/SDK libraries and are launched by a host (Claude Code, VS Code, Cursor) or
+run with `npx`. It now wraps `@knorby/inkeedecoder-client` (see ADR-0002); the
+platform decisions below were inherited from the starter and still hold.
 
 Three decisions shape the result:
 

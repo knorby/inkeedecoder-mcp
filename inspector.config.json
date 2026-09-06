@@ -3,18 +3,12 @@
     "local": {
       "type": "stdio",
       "command": "node",
-      "args": ["dist/index.js"],
-      "env": {
-        "EXAMPLE_API_KEY": ""
-      }
+      "args": ["dist/index.js"]
     },
     "dev": {
       "type": "stdio",
       "command": "npx",
-      "args": ["tsx", "src/index.ts"],
-      "env": {
-        "EXAMPLE_API_KEY": ""
-      }
+      "args": ["tsx", "src/index.ts"]
     }
   }
 }

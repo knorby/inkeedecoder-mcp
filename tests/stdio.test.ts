@@ -37,12 +37,15 @@ describe.skipIf(!distExists)("stdio entrypoint", () => {
     );
 
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name)).toContain("example_ping");
+    expect(tools.map((tool) => tool.name)).toContain("inkeedecoder_ping");
 
     const result = await client.callTool({
-      name: "example_ping",
+      name: "inkeedecoder_ping",
       arguments: {},
     });
-    expect(result.structuredContent).toMatchObject({ ok: true });
+    expect(result.structuredContent).toMatchObject({
+      ok: true,
+      baseUrl: "https://inkeedecoder.com",
+    });
   }, 30_000);
 });

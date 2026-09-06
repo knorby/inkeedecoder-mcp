@@ -2,11 +2,23 @@
 
 Instructions and steering for AI coding agents working in this repository.
 
-This is a TypeScript starter template for **local MCP (Model Context Protocol)
-servers** that wrap an API or SDK library, served over stdio and runnable with
-`npx`. It is published to npm via Changesets + OIDC trusted publishing.
+This is a **local MCP (Model Context Protocol) server** that exposes
+[INKEEDecoder](https://inkeedecoder.com) — the cosmetic ingredient database
+formerly known as INCIDecoder — to MCP hosts. It is a thin wrapper around the
+[`@knorby/inkeedecoder-client`](https://www.npmjs.com/package/@knorby/inkeedecoder-client)
+library, served over stdio, runnable with `npx`, and published to npm as
+`@knorby/inkeedecoder-mcp` via Changesets + OIDC trusted publishing.
 
-Customize per project and keep this file updated as conventions evolve.
+The client library is deliberately multipurpose and lives in its own repo
+(`~/code/inkeedecoder-client`). **This repo does not parse HTML and does not
+do HTTP** — the client owns both. What this repo adds is MCP-shaped:
+
+- tool schemas, descriptions, and annotations
+- identifier handling (slug / path / URL, including old incidecoder.com links)
+- response bounding (page-by-page results, opt-in verbose sections)
+
+Changes that belong in the parser or the HTTP layer belong in the client repo,
+not here. Keep this file updated as conventions evolve.
 
 ---
 
@@ -99,8 +111,16 @@ scanning). Both are needed for full coverage.
   port, no socket, no protocol mocks. Prefer this over calling tool handlers
   directly; it exercises schema validation and registration the way a host
   does. Assert on `structuredContent`; failures resolve as results with
-  `isError: true` rather than throwing. Stub HTTP with
-  `vi.stubGlobal("fetch", …)`.
+   `isError: true` rather than throwing. Stub HTTP with
+   `vi.stubGlobal("fetch", …)`.
+- **Test against real pages.** `tests/fixtures/` holds pages captured from
+   inkeedecoder.com (Apache-2.0, same author — see
+   `tests/fixtures/README.md`). `tests/tools.test.ts` routes stubbed requests
+   to them by path, so the real client and its parsers run against the markup
+   the site actually serves. Add a fixture rather than hand-writing HTML, and
+   treat the captures as read-only: Biome and the pre-commit whitespace hooks
+   exclude `tests/fixtures/`, and rewriting a capture makes it a worse test
+   input.
 - **Cover stdio by spawning the process.** `tests/stdio.test.ts` runs the built
   binary through `StdioClientTransport` and skips itself when `dist/` is absent.
 - **Inspect manually with** `npm run inspect` (web UI) or
@@ -143,8 +163,8 @@ PRs and release them all at once.
   `CHANGELOG.md`), then `npm run release` (builds + publishes).
 - **GitHub Actions release** (`workflow-templates/release.yml`): ships
   **staged** — GitHub only runs workflows from `.github/workflows/`, so this
-  workflow is inert in the template repo (no publish attempts on pushes to
-  `main`). To activate in a repo created from this template:
+  workflow is inert until it is moved (no publish attempts on pushes to
+  `main`). Activate it when the repo goes public:
   `git mv workflow-templates/release.yml .github/workflows/release.yml`.
   Once active, it runs on every push to `main` (and can be triggered
   manually via `workflow_dispatch`, e.g. to retry after a transient publish
@@ -262,6 +282,31 @@ These rules are mandatory. Follow them strictly.
 - **Bound responses** — paginate large collections and respect
   `CHARACTER_LIMIT`.
 - **Add a changeset for anything that changes published output.**
+
+### INKEEDecoder-specific rules
+
+- **The client owns HTTP and parsing.** No `fetch` calls and no HTML handling
+  in this repo — if a tool needs data the client does not expose, the change
+  belongs in `~/code/inkeedecoder-client`, not here.
+- **Page-only pagination.** Tools expose `page` and never the client's
+  `allPages`: one page per call, with `hasMore`/`page`/`nextPageUrl` in the
+  output so the model can ask for the next one. A page walk costs a request
+  per page at a one-second politeness interval, which is far too slow to hide
+  behind a single tool call.
+- **Inputs snake_case; outputs camelCase.** Output field names mirror the
+  client's types exactly (`ourTake`, `hasMore`, `nextPageUrl`), so
+  `structuredContent` needs no translation layer and cannot drift from the
+  library.
+- **Resolve ids through `src/lib/ids.ts`.** Every lookup tool takes an `id` and
+  must pass it through `resolveEntityId(id, expectedType)`, which validates
+  the host (inkeedecoder.com and incidecoder.com) and the entity type before
+  any request. Never hand a raw model-supplied string to the client.
+- **Verbose sections stay opt-in.** `long_descriptions`, `skim_table`,
+  `tooltips`, `details`, and `proof` default off; a single product's writeups
+  can fill a context window.
+- **Be a good citizen of the site.** Keep `INKEEDECODER_REQUEST_INTERVAL_MS` at
+  or above its default, read only the robots-allowed paths this server uses,
+  and do not republish the site's prose verbatim — summarize and cite the URL.
 
 ### Documentation
 

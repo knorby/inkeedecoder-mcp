@@ -1,5 +1,9 @@
 import * as z from "zod/v4";
-import { DEFAULT_TIMEOUT_MS } from "./constants.js";
+import {
+  DEFAULT_BASE_URL,
+  DEFAULT_MAX_PAGES,
+  DEFAULT_REQUEST_INTERVAL_MS,
+} from "./constants.js";
 
 /**
  * Environment configuration, parsed lazily with Zod.
@@ -13,20 +17,34 @@ import { DEFAULT_TIMEOUT_MS } from "./constants.js";
  * 2. **Validate, do not trust.** `process.env` is `string | undefined`; Zod
  *    coerces and constrains it once, here.
  *
- * TODO(template): replace `EXAMPLE_*` with the variables your API needs.
+ * INKEEDecoder is a public site with no API key, so every variable is
+ * optional: the defaults scrape inkeedecoder.com politely. The knobs exist for
+ * mirrors, self-hosted archives, and tuning politeness.
  */
 
 const EnvSchema = z.object({
-  /** API key for the wrapped service. Required by tools that call the API. */
-  EXAMPLE_API_KEY: z.string().min(1).optional(),
-  /** Base URL of the wrapped API, without a trailing slash. */
-  EXAMPLE_API_BASE_URL: z.url().default("https://api.example.com/v1"),
-  /** Per-request timeout in milliseconds. */
-  EXAMPLE_TIMEOUT_MS: z.coerce
+  /**
+   * Base URL of the site to read, without a trailing slash. Point this at a
+   * mirror or a locally archived copy; ids and paths are appended to it.
+   */
+  INKEEDECODER_BASE_URL: z.url().default(DEFAULT_BASE_URL),
+  /**
+   * Minimum delay in milliseconds between requests made while auto-paging.
+   * Be considerate: the site is a volunteer-run database.
+   */
+  INKEEDECODER_REQUEST_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .default(DEFAULT_REQUEST_INTERVAL_MS),
+  /**
+   * Safety cap on how many pages a single auto-paginated request may walk.
+   */
+  INKEEDECODER_MAX_PAGES: z.coerce
     .number()
     .int()
     .positive()
-    .default(DEFAULT_TIMEOUT_MS),
+    .default(DEFAULT_MAX_PAGES),
 });
 
 export type Config = z.infer<typeof EnvSchema>;
