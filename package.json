@@ -1,0 +1,75 @@
+{
+  "name": "repo-template-typescript-mcp",
+  "version": "0.0.0",
+  "description": "A TypeScript starter template for local MCP (Model Context Protocol) servers wrapping API libraries, runnable with npx over stdio.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
+  },
+  "bin": {
+    "repo-template-typescript-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsup && tsc --emitDeclarationOnly",
+    "dev": "tsx watch src/index.ts",
+    "lint": "biome check",
+    "format": "biome format --write",
+    "check": "biome check --write",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "inspect": "mcp-inspector --config inspector.config.json",
+    "inspect:cli": "mcp-inspector --cli --config inspector.config.json --server local --method tools/list",
+    "test:smoke": "mcp-inspector --cli --config inspector.config.json --server local --method tools/list",
+    "release": "npm run build && changeset publish",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,ts,cjs,mjs,jsx,tsx,json,jsonc,css}": [
+      "biome check --write --no-errors-on-unmatched"
+    ],
+    "*": [
+      "biome check --no-errors-on-unmatched --files-ignore-unknown=true"
+    ]
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@changesets/cli": "^3.0.2",
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@modelcontextprotocol/inspector": "^2.5.0",
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^5.0.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

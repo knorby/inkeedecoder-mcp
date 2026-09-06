@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "local": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "EXAMPLE_API_KEY": ""
+      }
+    },
+    "dev": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["tsx", "src/index.ts"],
+      "env": {
+        "EXAMPLE_API_KEY": ""
+      }
+    }
+  }
+}
