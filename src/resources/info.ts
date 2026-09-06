@@ -1,14 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/server";
-import { SERVER_NAME, SERVER_VERSION } from "../constants.js";
+import { readConfig } from "../config.js";
+import { ALLOWED_HOSTS, SERVER_NAME, SERVER_VERSION } from "../constants.js";
 
 /**
- * Example static resource: server identity and capabilities.
+ * Static resource: what this server is and how it is configured.
  *
- * Resources suit data a host can read by URI without arguments — config,
- * status, or cached documents. Use a `ResourceTemplate` (URI with `{param}`)
- * for parameterized reads.
- *
- * TODO(template): replace or delete alongside the example tools.
+ * A host can read it by URI with no arguments, which makes it the right place
+ * for the facts an operator wants to confirm without calling a tool: which
+ * site is being read and which link hosts are accepted.
  */
 
 /** Registers the `server://info` resource. */
@@ -18,21 +17,38 @@ export function registerInfoResource(server: McpServer): void {
     "server://info",
     {
       title: "Server information",
-      description: "Name, version, and capabilities of this MCP server.",
+      description:
+        "Name, version, transport, base URL, and accepted link hosts for this INKEEDecoder MCP server.",
       mimeType: "application/json",
     },
-    async (uri) => ({
-      contents: [
-        {
-          uri: uri.href,
-          mimeType: "application/json",
-          text: JSON.stringify(
-            { name: SERVER_NAME, version: SERVER_VERSION, transport: "stdio" },
-            null,
-            2,
-          ),
-        },
-      ],
-    }),
+    async (uri) => {
+      // Read lazily, and report a broken configuration rather than hiding it:
+      // a host reading this resource is exactly who needs to see the error.
+      const config = readConfig();
+
+      return {
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: "application/json",
+            text: JSON.stringify(
+              {
+                name: SERVER_NAME,
+                version: SERVER_VERSION,
+                transport: "stdio",
+                source: "https://inkeedecoder.com",
+                about:
+                  "INKEEDecoder (formerly INCIDecoder) is a community-run database of cosmetic products and ingredients. This server is not affiliated with it.",
+                baseUrl: config.ok ? config.config.INKEEDECODER_BASE_URL : null,
+                acceptedLinkHosts: ALLOWED_HOSTS,
+                configError: config.ok ? null : config.error,
+              },
+              null,
+              2,
+            ),
+          },
+        ],
+      };
+    },
   );
 }

@@ -125,7 +125,8 @@ Select the bump type (patch/minor/major) and write a short summary. A new
 
 **Automated release (default):** the release workflow ships **staged** at
 `workflow-templates/release.yml` — GitHub only runs workflows from
-`.github/workflows/`, so it is inactive in this template. Activate it with:
+`.github/workflows/`, so it stays inactive until the repo is public. Activate
+it with:
 
 ```bash
 git mv workflow-templates/release.yml .github/workflows/release.yml

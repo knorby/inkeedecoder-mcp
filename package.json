@@ -1,9 +1,27 @@
 {
-  "name": "repo-template-typescript-mcp",
+  "name": "@knorby/inkeedecoder-mcp",
   "version": "0.0.0",
-  "description": "A TypeScript starter template for local MCP (Model Context Protocol) servers wrapping API libraries, runnable with npx over stdio.",
+  "description": "MCP server for INKEEDecoder (formerly INCIDecoder) cosmetic ingredient and product data — search products and ingredients, read ingredient profiles, and resolve incidecoder.com links.",
   "license": "Apache-2.0",
   "type": "module",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "inkeedecoder",
+    "incidecoder",
+    "cosmetics",
+    "skincare",
+    "ingredients",
+    "inci"
+  ],
+  "homepage": "https://github.com/knorby/inkeedecoder-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/knorby/inkeedecoder-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/knorby/inkeedecoder-mcp/issues"
+  },
   "main": "./dist/server.js",
   "types": "./dist/server.d.ts",
   "exports": {
@@ -13,7 +31,7 @@
     }
   },
   "bin": {
-    "repo-template-typescript-mcp": "./dist/index.js"
+    "inkeedecoder-mcp": "./dist/index.js"
   },
   "files": [
     "dist",
@@ -49,6 +67,7 @@
     ]
   },
   "dependencies": {
+    "@knorby/inkeedecoder-client": "^0.2.0",
     "@modelcontextprotocol/server": "^2.0.0",
     "zod": "^4.5.4"
   },
