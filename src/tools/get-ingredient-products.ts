@@ -4,9 +4,11 @@ import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
 import {
   applyCharacterLimit,
+  boundStructured,
   markdownBullets,
   morePagesNote,
   refLines,
+  truncationNote,
 } from "../lib/format.js";
 import { resolveEntityId } from "../lib/ids.js";
 import {
@@ -73,7 +75,7 @@ export function registerGetIngredientProductsTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({ id, page, include_known_amount }) => {
+    async ({ id, page, include_known_amount }, ctx) => {
       const resolved = resolveEntityId(id, "ingredients");
       if (!resolved.ok) {
         return {
@@ -96,8 +98,16 @@ export function registerGetIngredientProductsTool(server: McpServer): void {
           {
             page,
             includeKnownAmount: include_known_amount,
+            signal: ctx.mcpReq.signal,
           },
         );
+
+        const bounded = boundStructured({
+          products: result.products,
+          ...(result.knownAmountProducts
+            ? { knownAmountProducts: result.knownAmountProducts }
+            : {}),
+        });
 
         const lines = [
           markdownBullets(
@@ -122,14 +132,14 @@ export function registerGetIngredientProductsTool(server: McpServer): void {
 
         return {
           content: [
-            { type: "text", text: applyCharacterLimit(lines.join("\n")) },
+            {
+              type: "text",
+              text:
+                applyCharacterLimit(lines.join("\n")) +
+                (bounded.truncated ? truncationNote() : ""),
+            },
           ],
-          structuredContent: {
-            products: result.products,
-            ...(result.knownAmountProducts
-              ? { knownAmountProducts: result.knownAmountProducts }
-              : {}),
-          },
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

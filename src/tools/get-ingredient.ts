@@ -3,7 +3,11 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
-import { applyCharacterLimit } from "../lib/format.js";
+import {
+  applyCharacterLimit,
+  boundStructured,
+  truncationNote,
+} from "../lib/format.js";
 import { resolveEntityId } from "../lib/ids.js";
 import { ingredientSchema } from "../lib/schemas.js";
 
@@ -124,16 +128,10 @@ export function registerGetIngredientTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({
-      id,
-      functions,
-      safety,
-      also_called,
-      image,
-      cosing,
-      details,
-      proof,
-    }) => {
+    async (
+      { id, functions, safety, also_called, image, cosing, details, proof },
+      ctx,
+    ) => {
       const resolved = resolveEntityId(id, "ingredients");
       if (!resolved.ok) {
         return {
@@ -159,16 +157,21 @@ export function registerGetIngredientTool(server: McpServer): void {
           cosing,
           details,
           proof,
+          signal: ctx.mcpReq.signal,
         });
+
+        const bounded = boundStructured(ingredient);
 
         return {
           content: [
             {
               type: "text",
-              text: applyCharacterLimit(renderIngredient(ingredient)),
+              text:
+                applyCharacterLimit(renderIngredient(ingredient)) +
+                (bounded.truncated ? truncationNote() : ""),
             },
           ],
-          structuredContent: ingredient,
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

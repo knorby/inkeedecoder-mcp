@@ -6,8 +6,10 @@
  * error tells the model what to do next.
  *
  * `@knorby/inkeedecoder-client` throws plain `Error`s whose messages embed the
- * HTTP status (`Request to <url> failed: 404 Not Found`), so status handling
- * starts by reading it back out of the message.
+ * HTTP status (`Request to <url> failed: 404 Not Found`) and, for the request
+ * controls, `AbortError` (cancelled) or `Request to <url> timed out after
+ * <n> ms`. Status handling starts by reading the status back out of the
+ * message.
  */
 
 /** Matches the client's `Request to <url> failed: <status> <statusText>`. */
@@ -35,6 +37,14 @@ export function toUserMessage(error: unknown, context: string): string {
   }
   if (status) {
     return `Error: ${context} — HTTP ${status}. ${raw}`;
+  }
+
+  // The host cancelled the request (the caller's AbortSignal fired).
+  if (error instanceof Error && error.name === "AbortError") {
+    return `Error: ${context} — the request was cancelled.`;
+  }
+  if (/timed out after \d+ ms/.test(raw)) {
+    return `Error: ${context} — the request timed out (${raw}). Retry once; if it persists, raise INKEEDECODER_TIMEOUT_MS or check the site.`;
   }
 
   if (NETWORK_FAILURE.test(raw)) {

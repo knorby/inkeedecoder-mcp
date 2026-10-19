@@ -1,30 +1,36 @@
+import { readFileSync } from "node:fs";
+
 /**
  * Shared constants.
  *
- * Keep `SERVER_VERSION` in sync with `package.json`.
+ * `SERVER_VERSION` is read from `package.json` at load time. This module sits
+ * one directory below the package root in both layouts it runs in — `src/`
+ * during development and `dist/` once bundled — so the read keeps working
+ * everywhere. Deriving it means a `changeset version` bump cannot leave the
+ * version a host sees stale; the fallback keeps the server usable if the file
+ * is unreadable.
  */
 
 /** Server name advertised to hosts during initialization. */
 export const SERVER_NAME = "@knorby/inkeedecoder-mcp";
 
-/** Server version advertised to hosts during initialization. */
-export const SERVER_VERSION = "0.0.0";
+/** Server version advertised to hosts, derived from `package.json`. */
+export const SERVER_VERSION = readPackageVersion();
 
 /**
- * Maximum characters a tool response may contain before it is truncated.
- * Long ingredient lists and long-form writeups can be enormous, so tools
- * summarize in text and report truncation rather than flooding the context.
+ * Maximum characters a tool response may contain before it is bounded — the
+ * text block by truncation, and `structuredContent` by `boundStructured`.
  */
 export const CHARACTER_LIMIT = 25_000;
 
 /** Default INKEEDecoder base URL, without a trailing slash. */
 export const DEFAULT_BASE_URL = "https://inkeedecoder.com";
 
-/** Default politeness delay in milliseconds between auto-paged requests. */
+/** Default spacing in milliseconds between requests. */
 export const DEFAULT_REQUEST_INTERVAL_MS = 1_000;
 
-/** Default cap on pages fetched in a single auto-paginated request. */
-export const DEFAULT_MAX_PAGES = 25;
+/** Default per-request timeout in milliseconds. `0` disables the timeout. */
+export const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
  * Hosts accepted in tool `id` arguments.
@@ -43,3 +49,17 @@ export const ALLOWED_HOSTS = [
   "incidecoder.com",
   "www.incidecoder.com",
 ] as const;
+
+/** Reads `version` from the package manifest next to this module's root. */
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version?: unknown };
+    return typeof pkg.version === "string" && pkg.version.length > 0
+      ? pkg.version
+      : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}

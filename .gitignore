@@ -23,6 +23,12 @@ coverage/
 # --- Husky internals ---
 .husky/_/
 
+# --- Agent scratch ---
+# Superpowers plans and scratch files stay local; they are working notes, not
+# documentation, and this repo is intended to be public.
+docs/superpowers/
+.superpowers/
+
 # --- Misc ---
 *.log
 *.bak

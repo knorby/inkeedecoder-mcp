@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { resetConfig } from "../src/config.js";
-import { DEFAULT_BASE_URL } from "../src/constants.js";
+import { SERVER_NAME, SERVER_VERSION } from "../src/constants.js";
+import { resetClient } from "../src/lib/client.js";
 import { createTestClient, type TestHarness, textOf } from "./helpers.js";
 
 /**
@@ -15,7 +24,42 @@ import { createTestClient, type TestHarness, textOf } from "./helpers.js";
  * The fixtures are real pages captured from inkeedecoder.com (see
  * tests/fixtures/README.md), so the parsers exercise the markup the site
  * actually serves rather than a hand-written approximation.
+ *
+ * The suite runs against a mirror with pacing off: the shared request
+ * schedule must never slow the tests down, and the politeness floor only
+ * applies to inkeedecoder.com itself. The environment is restored afterwards
+ * so spawned children (the stdio test) still see the defaults.
  */
+
+const TEST_BASE_URL = "https://mirror.example.test";
+
+const pkg = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+) as { version: string };
+
+const savedEnv = {
+  INKEEDECODER_BASE_URL: process.env.INKEEDECODER_BASE_URL,
+  INKEEDECODER_REQUEST_INTERVAL_MS:
+    process.env.INKEEDECODER_REQUEST_INTERVAL_MS,
+  INKEEDECODER_TIMEOUT_MS: process.env.INKEEDECODER_TIMEOUT_MS,
+};
+
+beforeEach(() => {
+  process.env.INKEEDECODER_BASE_URL = TEST_BASE_URL;
+  process.env.INKEEDECODER_REQUEST_INTERVAL_MS = "0";
+  delete process.env.INKEEDECODER_TIMEOUT_MS;
+  resetConfig();
+  resetClient();
+});
+
+afterAll(() => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  resetConfig();
+  resetClient();
+});
 
 interface Ref {
   name: string;
@@ -103,6 +147,20 @@ function stubSite(): { calls: string[] } {
   return { calls };
 }
 
+/**
+ * A fetch that never settles until its signal aborts, recording that the
+ * abort reached it — the request-control tests owe their conclusions to it.
+ */
+function hangingFetch(state: { aborted: boolean }): typeof fetch {
+  return ((_input: unknown, init?: RequestInit) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => {
+        state.aborted = true;
+        reject(new Error("aborted"));
+      });
+    })) as unknown as typeof fetch;
+}
+
 describe("server", () => {
   let harness: TestHarness;
 
@@ -172,6 +230,77 @@ describe("server", () => {
       }
     }
   });
+
+  it("advertises the package version", async () => {
+    harness = await createTestClient();
+
+    expect(SERVER_VERSION).toBe(pkg.version);
+    expect(harness.client.getServerVersion()).toMatchObject({
+      name: SERVER_NAME,
+      version: pkg.version,
+    });
+  });
+
+  it("reports its configuration from the info resource", async () => {
+    harness = await createTestClient();
+
+    const result = await harness.client.readResource({ uri: "server://info" });
+    const text = (result.contents[0] as { text?: string } | undefined)?.text;
+    const info = JSON.parse(String(text)) as {
+      name: string;
+      version: string;
+      baseUrl: string | null;
+      requestIntervalMs: number | null;
+      timeoutMs: number | null;
+      configError: string | null;
+    };
+
+    expect(info).toMatchObject({
+      name: SERVER_NAME,
+      version: pkg.version,
+      baseUrl: TEST_BASE_URL,
+      requestIntervalMs: 0,
+      timeoutMs: 30_000,
+      configError: null,
+    });
+  });
+
+  it("generates a search-first prompt for a product name", async () => {
+    harness = await createTestClient();
+
+    const result = await harness.client.getPrompt({
+      name: "analyze_ingredients",
+      arguments: { product: "The Ordinary Retinol 1% in Squalane" },
+    });
+    const content = result.messages[0]?.content as
+      | { text?: string }
+      | undefined;
+    const text = String(content?.text ?? "");
+
+    expect(text).toContain("inkeedecoder_search");
+    expect(text).toContain("ask which one to analyze");
+  });
+
+  it("generates a direct-fetch prompt for a link", async () => {
+    harness = await createTestClient();
+
+    const result = await harness.client.getPrompt({
+      name: "analyze_ingredients",
+      arguments: {
+        product:
+          "https://incidecoder.com/products/the-ordinary-retinol-1-in-squalane",
+        focus: "dry skin",
+      },
+    });
+    const content = result.messages[0]?.content as
+      | { text?: string }
+      | undefined;
+    const text = String(content?.text ?? "");
+
+    expect(text).toContain("as-is");
+    expect(text).toContain("dry skin");
+    expect(text).not.toContain("list the candidates");
+  });
 });
 
 describe("inkeedecoder_ping", () => {
@@ -197,7 +326,8 @@ describe("inkeedecoder_ping", () => {
     expect(result.structuredContent).toMatchObject({
       ok: true,
       reply: "pong: hi",
-      baseUrl: DEFAULT_BASE_URL,
+      baseUrl: TEST_BASE_URL,
+      server: { name: SERVER_NAME, version: pkg.version },
     });
     expect(textOf(result)).toBe("pong: hi");
   });
@@ -409,7 +539,7 @@ describe("link handling", () => {
     // Only the path is used, and it is fetched from the configured base URL —
     // an old link never contacts the old domain.
     expect(calls[0]).toBe(
-      `${DEFAULT_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
+      `${TEST_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
     );
   });
 
@@ -429,9 +559,44 @@ describe("link handling", () => {
     });
 
     expect(calls).toEqual([
-      `${DEFAULT_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
-      `${DEFAULT_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
+      `${TEST_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
+      `${TEST_BASE_URL}/products/the-ordinary-retinol-1-in-squalane`,
     ]);
+  });
+
+  it("rejects dot-segment paths before anything is fetched", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    for (const id of [
+      "/products/../ingredients/squalane",
+      "/products/%2e%2e/ingredients/squalane",
+    ]) {
+      const result = await harness.client.callTool({
+        name: "inkeedecoder_get_product",
+        arguments: { id },
+      });
+
+      expect(result.isError, id).toBe(true);
+      expect(textOf(result)).toContain("dot segment");
+    }
+    // URL normalization would have collapsed these into an ingredient page;
+    // nothing may be requested at all.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("rejects a path with extra segments", async () => {
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "/products/the-ordinary-retinol-1-in-squalane/extra" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("extra path segments");
+    expect(calls).toHaveLength(0);
   });
 
   it("rejects a URL from another site", async () => {
@@ -559,6 +724,51 @@ describe("inkeedecoder_get_product", () => {
     expect(out.longDescriptions).toHaveLength(8);
     expect(out.skimTable).toHaveLength(8);
     expect(textOf(verbose)).toContain("long descriptions (8)");
+  });
+
+  it("does not shorten a lean result", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: { id: "the-ordinary-retinol-1-in-squalane" },
+    });
+
+    expect(textOf(result)).not.toContain("were shortened");
+  });
+
+  it("bounds an all-sections result and says fields were shortened", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: {
+        id: "the-ordinary-retinol-1-in-squalane",
+        brand: true,
+        description: true,
+        ingredients: true,
+        images: "all",
+        hashtags: true,
+        full_name: true,
+        functions: true,
+        skim_table: true,
+        dates: true,
+        tooltips: true,
+        long_descriptions: true,
+      },
+    });
+
+    expect(result.isError).toBeFalsy();
+    // Both halves of the result respect the response limit: the structured
+    // half is bounded by shortening fields, and the text half says so.
+    const size = JSON.stringify(result.structuredContent).length;
+    expect(size).toBeLessThanOrEqual(25_000);
+    expect(textOf(result)).toContain("were shortened");
+    expect(structured<{ name: string }>(result).name).toBe(
+      "Retinol 1% In Squalane",
+    );
   });
 
   it("maps a missing page to an actionable error", async () => {
@@ -775,5 +985,130 @@ describe("inkeedecoder_get_ingredient_function", () => {
     expect(out.description).toContain("soft, smooth");
     expect(out.ingredients.items).toHaveLength(50);
     expect(out.ingredients.hasMore).toBe(true);
+  });
+});
+
+describe("request control", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+    resetClient();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("spaces successive requests by the configured interval", async () => {
+    process.env.INKEEDECODER_REQUEST_INTERVAL_MS = "250";
+    resetConfig();
+    resetClient();
+    const { calls } = stubSite();
+    harness = await createTestClient();
+
+    const started = Date.now();
+    await harness.client.callTool({
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane", tab: "products" },
+    });
+    await harness.client.callTool({
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane", tab: "products" },
+    });
+
+    expect(calls).toHaveLength(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+  });
+
+  it("times out a hanging request with an actionable error", async () => {
+    process.env.INKEEDECODER_TIMEOUT_MS = "50";
+    resetConfig();
+    resetClient();
+    vi.stubGlobal("fetch", hangingFetch({ aborted: false }));
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient",
+      arguments: { id: "squalane" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("timed out");
+  });
+
+  it("cancels in-flight work when the caller aborts", async () => {
+    const state = { aborted: false };
+    vi.stubGlobal("fetch", hangingFetch(state));
+    harness = await createTestClient();
+    const controller = new AbortController();
+
+    const pending = harness.client.callTool(
+      { name: "inkeedecoder_get_ingredient", arguments: { id: "squalane" } },
+      { signal: controller.signal },
+    );
+    setTimeout(() => controller.abort(), 30);
+
+    await expect(pending).rejects.toThrow(/abort/i);
+    await vi.waitFor(() => {
+      expect(state.aborted).toBe(true);
+    });
+  });
+});
+
+describe("error handling", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    resetConfig();
+    resetClient();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    await harness?.close();
+  });
+
+  it("maps rate limiting to an actionable error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("slow down", {
+            status: 429,
+            statusText: "Too Many Requests",
+          }),
+      ),
+    );
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("rate limited (HTTP 429)");
+  });
+
+  it("maps a network failure to an actionable error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    );
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_search",
+      arguments: { query: "squalane" },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("could not reach");
   });
 });

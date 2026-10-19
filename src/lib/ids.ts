@@ -15,6 +15,12 @@ import { ALLOWED_HOSTS } from "../constants.js";
  *   tool would otherwise fetch an ingredient page and parse it as a product,
  *   producing plausible nonsense. Checking the type prefix turns that into a
  *   message naming the right tool.
+ *
+ * Resolution is strict about the shape of a path: exactly `/<type>/<slug>`.
+ * Dot segments (`.` or `..`, raw or percent-encoded) and extra path segments
+ * are rejected, because URL normalization at fetch time would otherwise
+ * collapse them — `/products/../ingredients/squalane` would silently become
+ * an ingredient page fetched by the product tool.
  */
 
 /** Entity types as they appear in inkeedecoder.com URL paths. */
@@ -62,6 +68,27 @@ function stripQueryAndHash(input: string): string {
 /** "ingredient" -> "an ingredient", for readable error messages. */
 function withArticle(noun: string): string {
   return `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+}
+
+/**
+ * Rejects the segments URL normalization could collapse: dot segments in raw
+ * or percent-encoded form (`%2e`, `%2E`), and anything that decodes to a path
+ * separator. A segment whose percent-encoding is malformed is left alone —
+ * the URL parser treats it as a literal, so it cannot traverse.
+ */
+function isUnsafeSegment(segment: string): boolean {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    return false; // malformed encoding: literal, not a traversal vector
+  }
+  return (
+    decoded === "." ||
+    decoded === ".." ||
+    decoded.includes("/") ||
+    decoded.includes("\\")
+  );
 }
 
 /**
@@ -125,6 +152,15 @@ export function resolveEntityId(raw: string, expected: EntityType): ResolvedId {
     };
   }
 
+  for (const segment of segments) {
+    if (isUnsafeSegment(segment)) {
+      return {
+        ok: false,
+        error: `Error: "${trimmed}" is not a usable ${what} id — it contains a dot segment or an encoded path separator. Pass the slug directly, for example "${EXAMPLE[expected]}".`,
+      };
+    }
+  }
+
   // Bare slug: qualify it so the client fetches the right kind of page.
   if (segments.length === 1) {
     const slug = segments[0] ?? "";
@@ -142,6 +178,13 @@ export function resolveEntityId(raw: string, expected: EntityType): ResolvedId {
     };
   }
 
-  const slug = rest[rest.length - 1] ?? "";
-  return { ok: true, slug, path: `/${segments.join("/")}` };
+  if (rest.length !== 1) {
+    return {
+      ok: false,
+      error: `Error: "${trimmed}" has unexpected extra path segments. Expected exactly "/${expected}/<slug>", for example "/${expected}/${EXAMPLE[expected]}".`,
+    };
+  }
+
+  const slug = rest[0] ?? "";
+  return { ok: true, slug, path: `/${expected}/${slug}` };
 }

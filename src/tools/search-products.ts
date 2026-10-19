@@ -4,9 +4,11 @@ import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
 import {
   applyCharacterLimit,
+  boundStructured,
   markdownBullets,
   morePagesNote,
   refLines,
+  truncationNote,
 } from "../lib/format.js";
 import { paginatedSchema, refSchema } from "../lib/schemas.js";
 
@@ -73,7 +75,7 @@ export function registerSearchProductsTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({ query, include, exclude, include_mode, page }) => {
+    async ({ query, include, exclude, include_mode, page }, ctx) => {
       if (query.trim() === "" && !include?.length && !exclude?.length) {
         return {
           content: [
@@ -102,18 +104,21 @@ export function registerSearchProductsTool(server: McpServer): void {
             ...(exclude ? { exclude } : {}),
             includeMode: include_mode,
           },
-          { page },
+          { page, signal: ctx.mcpReq.signal },
         );
 
+        const bounded = boundStructured(result);
         const text =
-          markdownBullets(
-            `Products matching "${query}" (page ${result.page})`,
-            refLines(result.items),
-          ) + morePagesNote(result.hasMore, result.page + 1);
+          applyCharacterLimit(
+            markdownBullets(
+              `Products matching "${query}" (page ${result.page})`,
+              refLines(result.items),
+            ) + morePagesNote(result.hasMore, result.page + 1),
+          ) + (bounded.truncated ? truncationNote() : "");
 
         return {
-          content: [{ type: "text", text: applyCharacterLimit(text) }],
-          structuredContent: result,
+          content: [{ type: "text", text }],
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

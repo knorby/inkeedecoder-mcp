@@ -121,6 +121,14 @@ scanning). Both are needed for full coverage.
    treat the captures as read-only: Biome and the pre-commit whitespace hooks
    exclude `tests/fixtures/`, and rewriting a capture makes it a worse test
    input.
+- **Keep the suite fast: test against a mirror, not the site.** `tools.test.ts`
+  sets `INKEEDECODER_BASE_URL` to a fixture mirror with
+  `INKEEDECODER_REQUEST_INTERVAL_MS=0` for every test (the politeness floor
+  only applies to inkeedecoder.com), and restores the environment afterwards
+  so the stdio test's child process sees the defaults. A dedicated
+  `request control` suite covers spacing (with a raised interval), timeouts,
+  and cancellation; `tests/config.test.ts` covers the environment contract
+  itself.
 - **Cover stdio by spawning the process.** `tests/stdio.test.ts` runs the built
   binary through `StdioClientTransport` and skips itself when `dist/` is absent.
 - **Inspect manually with** `npm run inspect` (web UI) or
@@ -161,29 +169,26 @@ PRs and release them all at once.
   `.changeset/*.md` file alongside the code change.
 - **To release**: `npx changeset version` (bumps `package.json` +
   `CHANGELOG.md`), then `npm run release` (builds + publishes).
-- **GitHub Actions release** (`workflow-templates/release.yml`): ships
-  **staged** — GitHub only runs workflows from `.github/workflows/`, so this
-  workflow is inert until it is moved (no publish attempts on pushes to
-  `main`). Activate it when the repo goes public:
-  `git mv workflow-templates/release.yml .github/workflows/release.yml`.
-  Once active, it runs on every push to `main` (and can be triggered
-  manually via `workflow_dispatch`, e.g. to retry after a transient publish
-  failure): with no pending changesets
-  it is a no-op. With changesets, it opens a "Version Packages" PR
-  (`changeset version` bumps the version string, updates `CHANGELOG.md`,
-  and removes consumed changesets); merging that PR publishes to npm, tags,
-  and creates a GitHub Release. Publishing uses OIDC trusted publishing — no
-  npm token secrets are involved. Permissions follow the changesets v2
-  sub-action split (`select-mode` → `version` | `pack` → `publish`);
-  `id-token: write` is scoped to the publish job only.
+- **GitHub Actions release** (`.github/workflows/release.yml`): runs on every
+  push to `main` (and via `workflow_dispatch`, e.g. to retry after a transient
+  publish failure). With no pending changesets it is a no-op. With changesets,
+  it opens a "Version Packages" PR (`changeset version` bumps the version
+  string, updates `CHANGELOG.md`, and removes consumed changesets); merging
+  that PR publishes to npm, tags, and creates a GitHub Release. Publishing
+  uses OIDC trusted publishing — no npm token secrets are involved.
+  Permissions follow the changesets v2 sub-action split (`select-mode` →
+  `version` | `pack` → `publish`); `id-token: write` is scoped to the publish
+  job only.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
   to confirm only `dist/`, `README.md`, `CHANGELOG.md`, and `LICENSE` are
   included.
 
 ### One-time release setup (repository owner)
 
-0. Activate the staged workflow:
-   `git mv workflow-templates/release.yml .github/workflows/release.yml`.
+Required **after** the manual first publish — the trusted publisher needs the
+package to exist on npm first
+([npm/cli#8544](https://github.com/npm/cli/issues/8544)).
+
 1. Repo **Settings → Actions → General → Workflow permissions**: select **Read
    and write permissions**, and check **Allow GitHub Actions to create and
    approve pull requests**.
@@ -202,10 +207,12 @@ publish is manual:
 ```bash
 npm login
 npm pkg delete publishConfig.provenance   # provenance needs CI + public repo
+npm run build
+npm pack --dry-run                        # confirm the file list first
 npm run release                           # build + changeset publish
 npm pkg set publishConfig.provenance=true
 git push origin main --follow-tags
-gh release create vX.Y.Z --notes-from-tag
+gh release create v0.1.0 --notes-from-tag
 ```
 
 ### Release failure quick reference
@@ -279,8 +286,13 @@ These rules are mandatory. Follow them strictly.
   what to do next. Never let an exception escape a tool handler.
 - **Validate credentials lazily**, inside the tool, so a misconfigured server
   still answers `tools/list`.
-- **Bound responses** — paginate large collections and respect
-  `CHARACTER_LIMIT`.
+- **Bound responses** — paginate large collections, and run both halves of a
+  result through `applyCharacterLimit` (text) and `boundStructured`
+  (structured content) before returning; the text tells the model when fields
+  were shortened.
+- **Never hardcode the advertised version** — `SERVER_VERSION` is read from
+  `package.json` at load in `src/constants.ts`, so a version bump cannot leave
+  hosts seeing a stale number.
 - **Add a changeset for anything that changes published output.**
 
 ### INKEEDecoder-specific rules
@@ -299,14 +311,23 @@ These rules are mandatory. Follow them strictly.
   library.
 - **Resolve ids through `src/lib/ids.ts`.** Every lookup tool takes an `id` and
   must pass it through `resolveEntityId(id, expectedType)`, which validates
-  the host (inkeedecoder.com and incidecoder.com) and the entity type before
-  any request. Never hand a raw model-supplied string to the client.
+  the host (inkeedecoder.com and incidecoder.com), the entity type, and the
+  `/<type>/<slug>` shape — dot segments and extra path segments are rejected
+  because URL normalization would otherwise collapse them before the fetch.
+  Never hand a raw model-supplied string to the client.
+- **Forward cancellation and keep timeouts.** Tool handlers take
+  `(args, ctx)` and pass `ctx.mcpReq.signal` into every client call, so a host
+  cancelling a call stops the in-flight request; `INKEEDECODER_TIMEOUT_MS`
+  bounds requests that hang.
 - **Verbose sections stay opt-in.** `long_descriptions`, `skim_table`,
   `tooltips`, `details`, and `proof` default off; a single product's writeups
   can fill a context window.
-- **Be a good citizen of the site.** Keep `INKEEDECODER_REQUEST_INTERVAL_MS` at
-  or above its default, read only the robots-allowed paths this server uses,
-  and do not republish the site's prose verbatim — summarize and cite the URL.
+- **Be a good citizen of the site.** Config enforces the default interval as a
+  floor for inkeedecoder.com and incidecoder.com (lower values are only for
+  mirrors), and the server shares one cached client per configuration so
+  requests are spaced across tool calls, not just within one. Read only the
+  robots-allowed paths this server uses, and do not republish the site's prose
+  verbatim — summarize and cite the URL.
 
 ### Documentation
 

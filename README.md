@@ -28,12 +28,12 @@ and is installable with `npx`.
 | `inkeedecoder_ping` | Connectivity and configuration check. Sends no request to the site. |
 
 Every tool is read-only and idempotent. Every list is paginated: a response
-tells you whether another page exists, and you ask for it with `page`.
+tells you whether another page exists, and you ask for it with `page`. Results
+are bounded — when one has to be shortened, the text says so.
 
-What each returns, in short: results are one page at a time; verbose sections
-(`long_descriptions`, `skim_table`, `tooltips`, `details`, `proof`) are off by
-default because a single product's ingredient writeups can fill a context
-window on their own.
+Verbose sections (`long_descriptions`, `skim_table`, `tooltips`, `details`,
+`proof`) are off by default because a single product's ingredient writeups can
+fill a context window on their own.
 
 ## Installing
 
@@ -74,8 +74,8 @@ Every variable is optional. The defaults read inkeedecoder.com politely.
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `INKEEDECODER_BASE_URL` | `https://inkeedecoder.com` | Site to read. Point it at a mirror or a locally archived copy. |
-| `INKEEDECODER_REQUEST_INTERVAL_MS` | `1000` | Minimum delay between requests while auto-paging. |
-| `INKEEDECODER_MAX_PAGES` | `25` | Safety cap on pages fetched in one auto-paginated request. |
+| `INKEEDECODER_REQUEST_INTERVAL_MS` | `1000` | Minimum spacing between requests, across tool calls. Values below the default apply only to mirrors — reads of inkeedecoder.com itself keep at least the default. |
+| `INKEEDECODER_TIMEOUT_MS` | `30000` | Abandon a request that takes longer than this. `0` disables the timeout. |
 
 Pass them through the host's `env` block. The server never reads a `.env` file.
 
@@ -105,7 +105,10 @@ the tool you wanted rather than mis-parsing the page.
 The site is a volunteer-run database that permits the paths this server reads
 (see its `robots.txt`) and asks that automated traffic stay light.
 
-- Requests are spaced by `INKEEDECODER_REQUEST_INTERVAL_MS`; don't lower it.
+- Requests are spaced by `INKEEDECODER_REQUEST_INTERVAL_MS` — across separate
+  tool calls, not just within one — and reads of inkeedecoder.com keep at least
+  the default interval. Requests time out (`INKEEDECODER_TIMEOUT_MS`, 30 s by
+  default) rather than piling up.
 - Summarize rather than republishing the site's prose, and cite page URLs.
 - Expect gaps: entries are user-submitted.
 
@@ -162,13 +165,13 @@ src/
   index.ts              # stdio entrypoint (`bin`) — serveStdio(createServer)
   server.ts             # createServer(): registers tools, resources, prompts
   config.ts             # lazy Zod-parsed environment config
-  constants.ts          # server name/version, defaults, accepted link hosts
+  constants.ts          # defaults, accepted link hosts, version from package.json
   lib/
-    client.ts           # builds the inkeedecoder-client from config
+    client.ts           # builds and caches the inkeedecoder-client from config
     ids.ts              # slug/path/URL -> site path (host + type validation)
     schemas.ts          # output schemas mirroring the client's types
     errors.ts           # error -> actionable tool message
-    format.ts           # markdown rendering + truncation
+    format.ts           # markdown rendering + response bounding
     log.ts              # stderr-only logging
   tools/                # one file per tool
   resources/            # resource registrations
@@ -177,12 +180,12 @@ tests/
   helpers.ts            # in-process test client (createMcpHandler + Client)
   fixtures/             # real pages captured from the site (test inputs)
   tools.test.ts         # integration tests through a real client
+  config.test.ts        # environment contract (defaults, floor)
   stdio.test.ts         # spawns dist/index.js and calls tools over stdio
 inspector.config.json   # MCP Inspector server config
 dist/                   # build output (gitignored)
 .changeset/             # changeset files (versioning)
-.github/workflows/      # CI workflows
-workflow-templates/     # staged release workflow (inactive until moved)
+.github/workflows/      # CI + release workflows
 docs/decisions/         # architecture decision records (ADRs)
 ```
 
@@ -208,7 +211,7 @@ server.registerTool(
       openWorldHint: true,
     },
   },
-  async ({ id, page }) => {
+  async ({ id, page }, ctx) => {
     const resolved = resolveEntityId(id, "brands");
     if (!resolved.ok) {
       return { content: [{ type: "text", text: resolved.error }], isError: true };
@@ -218,8 +221,15 @@ server.registerTool(
       return { content: [{ type: "text", text: client.error }], isError: true };
     }
     try {
-      const brand = await client.client.getBrand(resolved.path, { page });
-      return { content: [{ type: "text", text: render(brand) }], structuredContent: brand };
+      const brand = await client.client.getBrand(resolved.path, {
+        page,
+        signal: ctx.mcpReq.signal, // cancellation from the host
+      });
+      const bounded = boundStructured(brand);
+      return {
+        content: [{ type: "text", text: applyCharacterLimit(render(brand)) }],
+        structuredContent: bounded.value,
+      };
     } catch (error) {
       return {
         content: [{ type: "text", text: toUserMessage(error, "Brand lookup") }],
@@ -248,12 +258,15 @@ Conventions this repo follows:
   protocol error the model can't recover from.
 - **Never write to stdout** — it carries the JSON-RPC stream. Use `logInfo` /
   `logWarn` / `logError` from `src/lib/log.ts` (all stderr).
-- **Bound your responses** — paginate, and check `CHARACTER_LIMIT` before
-  returning large payloads.
+- **Bound your responses** — paginate, and run both halves of a result through
+  `applyCharacterLimit` (text) and `boundStructured` (structured content); the
+  text tells the model when fields were shortened.
+- **Honor cancellation** — pass `ctx.mcpReq.signal` into the client so a host
+  cancelling a call stops the in-flight request.
 
 ## Testing
 
-Three layers, cheapest first:
+Four layers, cheapest first:
 
 1. **In-process integration tests** (`tests/tools.test.ts`). `createMcpHandler`
    exposes the server as a web-standard `fetch` handler, so a real `Client`
@@ -271,93 +284,30 @@ Three layers, cheapest first:
    ```
 
    Assert on `structuredContent`; failures resolve as results with
-   `isError: true`.
+   `isError: true`. The same file covers link handling, response bounding,
+   request spacing, timeouts, and cancellation.
 
-2. **stdio spawn test** (`tests/stdio.test.ts`). Spawns the built binary via
+2. **Configuration tests** (`tests/config.test.ts`). The environment contract:
+   defaults, coercion, and the politeness floor for inkeedecoder.com.
+
+3. **stdio spawn test** (`tests/stdio.test.ts`). Spawns the built binary via
    `StdioClientTransport` — the only way to catch a missing shebang or a stray
    `console.log`. It skips itself when `dist/` is absent, so a bare checkout
    can still run `npm test`.
 
-3. **Inspector smoke test** (`npm run test:smoke`). Runs
+4. **Inspector smoke test** (`npm run test:smoke`). Runs
    `mcp-inspector --cli --config inspector.config.json --server local --method tools/list`
    against `dist/`, in CI after the build.
 
-## Versioning and publishing
+## Releases
 
-This repo uses [Changesets](https://github.com/changesets/changesets) for
-versioning. Versioning is decoupled from merges — you can merge multiple PRs
-and release them all at once.
-
-### Adding a changeset
-
-```bash
-npx changeset
-```
-
-Select patch/minor/major, write a summary. Commit the generated
-`.changeset/*.md` alongside your code.
-
-### Releasing
-
-The release workflow ships **staged** at `workflow-templates/release.yml` and
-is inactive until it is moved into `.github/workflows/`:
-
-```bash
-git mv workflow-templates/release.yml .github/workflows/release.yml
-```
-
-Once active, the flow is automated: on every push to `main`, with no pending
-changesets it is a no-op; with changesets it opens a "Version Packages" PR
-(`changeset version` bumps `package.json`, updates `CHANGELOG.md`, and removes
-the consumed changesets). Merging that PR publishes to npm, tags the release,
-and creates a GitHub Release. Publishing uses OIDC trusted publishing — no npm
-tokens are stored as secrets, and `id-token: write` is scoped to the publish
-job only.
-
-For a manual release: `npx changeset version`, then `npm run release`.
-
-#### One-time setup (trusted publishing)
-
-1. Repo **Settings → Actions → General → Workflow permissions**: select
-   **Read and write permissions**, and check **Allow GitHub Actions to
-   create and approve pull requests**.
-2. Repo **Settings → Environments**: create an environment named `release`.
-3. On npmjs.com, add a trusted publisher for the package. Values must match
-   exactly: this repository, workflow filename `release.yml`, environment
-   `release`.
-4. Enable npm 2FA: `npm profile enable-2fa auth-and-writes`.
-
-#### First publish (manual)
-
-npm requires a package to exist before it can link a trusted publisher, so the
-very first publish is manual:
-
-```bash
-npm login
-npm pkg delete publishConfig.provenance   # provenance needs CI + public repo
-npm run release                           # build + changeset publish
-npm pkg set publishConfig.provenance=true
-git push origin main --follow-tags
-gh release create vX.Y.Z --notes-from-tag
-```
-
-### Publishing security
-
-- **Trusted publishing (OIDC)**: the release workflow publishes with an OIDC
-  token minted by GitHub Actions — no npm tokens involved. This is compatible
-  with 2FA (`npm profile enable-2fa auth-and-writes`).
-- **Provenance**: publishes with provenance attestation (cryptographic link
-  from package to commit + workflow). Requires a public repo and publishing
-  from CI; the manual first publish temporarily disables it.
-- **Scoped names**: `@knorby/...` prevents dependency confusion;
-  `publishConfig.access: "public"` is set because scoped packages default to
-  restricted visibility.
-- **`.npmrc`**: `ignore-scripts=true` blocks dependency `postinstall` scripts.
-  This also blocks the `prepare` script, so run `npx husky` after
-  `npm install` to set up hooks (or use
-  `npm install --ignore-scripts=false`).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full workflow.
+Published to npm as `@knorby/inkeedecoder-mcp` from GitHub Actions, with
+[Changesets](https://github.com/changesets/changesets) and OIDC trusted
+publishing — no npm tokens involved. Add a changeset (`npx changeset`) with any
+change that affects published output; the release workflow opens a "Version
+Packages" PR, and merging it publishes. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for the release setup, including the manual
+first publish.
 
 ## Documentation
 

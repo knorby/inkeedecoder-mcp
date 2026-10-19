@@ -16,8 +16,8 @@ workflow, and how to publish releases.
 ## Getting started
 
 ```bash
-git clone <repo-url>
-cd <repo-name>
+git clone https://github.com/knorby/inkeedecoder-mcp.git
+cd inkeedecoder-mcp
 nvm use              # or: fnm use
 npm install          # installs deps (prepare blocked by .npmrc ignore-scripts)
 npx husky            # sets up Husky hooks (run after npm install)
@@ -43,17 +43,19 @@ pre-commit install   # sets up pre-commit hooks for file hygiene + secrets
 
 ## Testing
 
-Three layers, cheapest first:
+Four layers, cheapest first:
 
 1. **In-process integration tests** — `createTestClient()` in
    `tests/helpers.ts` serves the server through `createMcpHandler` and connects
    a real `Client`, so tests exercise registration and schema validation with no
    port and no protocol mocks. Assert on `structuredContent`; failures come back
    with `isError: true` instead of throwing.
-2. **stdio spawn test** — `tests/stdio.test.ts` runs the built binary through
+2. **Configuration tests** — `tests/config.test.ts` covers the environment
+   contract: defaults, coercion, and the politeness floor for inkeedecoder.com.
+3. **stdio spawn test** — `tests/stdio.test.ts` runs the built binary through
    `StdioClientTransport`. It skips itself when `dist/` is absent, so run
    `npm run build` first to include it.
-3. **Inspector smoke test** — `npm run test:smoke` lists tools through the
+4. **Inspector smoke test** — `npm run test:smoke` lists tools through the
    Inspector CLI against `dist/`. CI runs this after the build.
 
 Explore by hand with `npm run inspect` (web UI), or
@@ -123,29 +125,46 @@ Select the bump type (patch/minor/major) and write a short summary. A new
 
 ### Releasing
 
-**Automated release (default):** the release workflow ships **staged** at
-`workflow-templates/release.yml` — GitHub only runs workflows from
-`.github/workflows/`, so it stays inactive until the repo is public. Activate
-it with:
+**Automated release (default):** `.github/workflows/release.yml` runs on every
+push to `main`. The `select-mode` job inspects repo state and picks what
+happens next:
+
+- **changesets found** → the `version` job runs `changeset version` (bumps
+  `package.json`, updates `CHANGELOG.md`, removes the consumed changesets) and
+  opens or updates a "Version Packages" pull request. Merging that PR
+  triggers the workflow again, landing in publish mode.
+- **new version not yet on npm** (no changesets left) → the `pack` job builds
+  and packs the package; the `publish` job publishes to npm via OIDC, pushes
+  git tags, and creates a GitHub Release.
+- **nothing to do** → all downstream jobs are skipped.
+
+**First publish (manual, required once):** npm requires a package to exist
+before it can link a trusted publisher, so `@knorby/inkeedecoder-mcp` (0.1.0)
+is published by hand before the workflow can take over:
 
 ```bash
-git mv workflow-templates/release.yml .github/workflows/release.yml
+npm login
+npm pkg delete publishConfig.provenance   # provenance needs CI + a public repo
+npm run build
+npm pack --dry-run                        # confirm the file list first
+npm run release                           # build + changeset publish
+npm pkg set publishConfig.provenance=true
+git push origin main --follow-tags
+gh release create v0.1.0 --notes-from-tag
 ```
 
-Once active, it runs on every push to `main`. With no pending changesets it
-is a no-op; with changesets, it opens a "Version Packages" PR (`changeset
-version` bumps `package.json`, updates `CHANGELOG.md`, and removes the
-consumed changesets). Merging that PR publishes to npm, tags the release,
-and creates a GitHub Release.
+**One-time setup after the first publish (repository owner):**
 
-Prerequisites (one-time, repository owner): a `release` environment in repo
-Settings → Environments; workflow permissions set to Read and write with PR
-creation allowed; a trusted publisher configured on npmjs.com (repository,
-workflow filename `release.yml`, environment `release` — must match exactly);
-and npm 2FA (`npm profile enable-2fa auth-and-writes`). The very first
-publish is manual — see the README "First publish (manual)" section.
+1. Repo **Settings → Actions → General → Workflow permissions**: select
+   **Read and write permissions**, and check **Allow GitHub Actions to create
+   and approve pull requests**.
+2. Repo **Settings → Environments**: create an environment named `release`.
+3. On npmjs.com, add a **trusted publisher** for the package. Values must
+   match the workflow exactly: this repository, workflow filename `release.yml`,
+   environment `release`.
+4. Enable npm 2FA: `npm profile enable-2fa auth-and-writes`.
 
-**Manual release (if needed):**
+**Manual release (fallback):**
 ```bash
 npx changeset version    # bumps package.json + generates CHANGELOG.md
 npm run release          # builds + publishes to npm
@@ -165,13 +184,13 @@ npm pack --dry-run    # verify only dist/, README.md, CHANGELOG.md, LICENSE
   token minted by GitHub Actions; there are no npm tokens (no `NPM_TOKEN`
   secret). Compatible with 2FA (`npm profile enable-2fa auth-and-writes`)
   because no token needs an OTP.
-- **Provenance** — this repo publishes with `--provenance` (cryptographic
+- **Provenance** — this repo publishes with provenance (cryptographic
   attestation linking the published package to the commit + workflow).
   Requires a public repo and publishing from CI; the manual first publish
   temporarily removes `publishConfig.provenance`.
-- **Scoped names** — use `@yourscope/package` names to prevent dependency
-  confusion attacks; `publishConfig.access: "public"` is set because scoped
-  packages default to restricted visibility.
+- **Scoped name** — `@knorby/inkeedecoder-mcp` prevents dependency confusion;
+  `publishConfig.access: "public"` is set because scoped packages default to
+  restricted visibility.
 - **No secrets in the package** — the `files` field in `package.json`
   whitelists only `dist`, `README.md`, `CHANGELOG.md`, and `LICENSE`.
 
