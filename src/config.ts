@@ -1,8 +1,9 @@
 import * as z from "zod/v4";
 import {
+  ALLOWED_HOSTS,
   DEFAULT_BASE_URL,
-  DEFAULT_MAX_PAGES,
   DEFAULT_REQUEST_INTERVAL_MS,
+  DEFAULT_TIMEOUT_MS,
 } from "./constants.js";
 
 /**
@@ -18,34 +19,61 @@ import {
  *    coerces and constrains it once, here.
  *
  * INKEEDecoder is a public site with no API key, so every variable is
- * optional: the defaults scrape inkeedecoder.com politely. The knobs exist for
- * mirrors, self-hosted archives, and tuning politeness.
+ * optional: the defaults read inkeedecoder.com politely. The base URL and
+ * interval knobs exist for mirrors and self-hosted archives — where the
+ * pacing floor below deliberately does not apply, because the polite pace
+ * protects inkeedecoder.com itself, not someone's own copy.
  */
 
-const EnvSchema = z.object({
-  /**
-   * Base URL of the site to read, without a trailing slash. Point this at a
-   * mirror or a locally archived copy; ids and paths are appended to it.
-   */
-  INKEEDECODER_BASE_URL: z.url().default(DEFAULT_BASE_URL),
-  /**
-   * Minimum delay in milliseconds between requests made while auto-paging.
-   * Be considerate: the site is a volunteer-run database.
-   */
-  INKEEDECODER_REQUEST_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .min(0)
-    .default(DEFAULT_REQUEST_INTERVAL_MS),
-  /**
-   * Safety cap on how many pages a single auto-paginated request may walk.
-   */
-  INKEEDECODER_MAX_PAGES: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(DEFAULT_MAX_PAGES),
-});
+const SITE_HOSTS = new Set<string>(ALLOWED_HOSTS);
+
+const EnvSchema = z
+  .object({
+    /**
+     * Base URL of the site to read, without a trailing slash. Point this at a
+     * mirror or a locally archived copy; ids and paths are appended to it.
+     */
+    INKEEDECODER_BASE_URL: z.url().default(DEFAULT_BASE_URL),
+    /**
+     * Minimum spacing in milliseconds between requests. Requests are spaced
+     * per server, not per tool call, so rapid successive calls cannot hammer
+     * the site. Values below the default are accepted only for mirrors; when
+     * the base URL is inkeedecoder.com itself the default is a floor.
+     */
+    INKEEDECODER_REQUEST_INTERVAL_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(DEFAULT_REQUEST_INTERVAL_MS),
+    /**
+     * Abandon a request that takes longer than this, in milliseconds. `0`
+     * disables the timeout.
+     */
+    INKEEDECODER_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .default(DEFAULT_TIMEOUT_MS),
+  })
+  .superRefine((env, ctx) => {
+    if (env.INKEEDECODER_REQUEST_INTERVAL_MS >= DEFAULT_REQUEST_INTERVAL_MS) {
+      return;
+    }
+    let host: string;
+    try {
+      host = new URL(env.INKEEDECODER_BASE_URL).hostname.toLowerCase();
+    } catch {
+      return; // z.url() already rejects malformed URLs
+    }
+    if (!SITE_HOSTS.has(host)) {
+      return; // a mirror may be paced differently
+    }
+    ctx.addIssue({
+      code: "custom",
+      path: ["INKEEDECODER_REQUEST_INTERVAL_MS"],
+      message: `must be at least ${DEFAULT_REQUEST_INTERVAL_MS} ms when reading ${host} directly (the site's etiquette). Point INKEEDECODER_BASE_URL at a mirror, or raise the interval.`,
+    });
+  });
 
 export type Config = z.infer<typeof EnvSchema>;
 

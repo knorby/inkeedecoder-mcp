@@ -34,7 +34,7 @@ Workflow: search first, then fetch. Use inkeedecoder_search to find products and
 
 Every \`id\` argument accepts a slug ("squalane"), a site path ("/ingredients/squalane"), or a URL. Links from inkeedecoder.com and from the older incidecoder.com both work: the site was renamed, and old links are resolved through the current site.
 
-Results come one page at a time — check \`hasMore\` and call again with \`page\` + 1. Verbose sections (long_descriptions, skim_table, tooltips, details, proof) are off by default; turn one on only when the answer needs it, because a single product's ingredient writeups can fill a context window on their own.
+Results come one page at a time — check \`hasMore\` and call again with \`page\` + 1. Verbose sections (long_descriptions, skim_table, tooltips, details, proof) are off by default; turn one on only when the answer needs it, because a single product's ingredient writeups can fill a context window on their own. Very large results are shortened to fit a response limit; when that happens, the text says which fields were cut.
 
 Etiquette: the data is user-submitted, so it can be incomplete or out of date. Summarize rather than republishing the site's prose, and cite the page URL. This server is not affiliated with INKEEDecoder.`;
 

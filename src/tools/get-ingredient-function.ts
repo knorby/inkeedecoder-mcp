@@ -4,9 +4,11 @@ import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
 import {
   applyCharacterLimit,
+  boundStructured,
   markdownBullets,
   morePagesNote,
   refLines,
+  truncationNote,
 } from "../lib/format.js";
 import { resolveEntityId } from "../lib/ids.js";
 import { paginatedSchema, refSchema } from "../lib/schemas.js";
@@ -65,7 +67,7 @@ export function registerGetIngredientFunctionTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({ id, page }) => {
+    async ({ id, page }, ctx) => {
       const resolved = resolveEntityId(id, "ingredient-functions");
       if (!resolved.ok) {
         return {
@@ -85,23 +87,30 @@ export function registerGetIngredientFunctionTool(server: McpServer): void {
       try {
         const fn = await client.client.getIngredientFunction(resolved.path, {
           page,
+          signal: ctx.mcpReq.signal,
         });
 
-        const text = [
-          `# ${fn.name}`,
-          "",
-          fn.url,
-          ...(fn.description ? ["", fn.description] : []),
-          "",
-          markdownBullets(
-            `Ingredients (page ${fn.ingredients.page})`,
-            refLines(fn.ingredients.items),
-          ) + morePagesNote(fn.ingredients.hasMore, fn.ingredients.page + 1),
-        ].join("\n");
+        const bounded = boundStructured(fn);
+
+        const text =
+          applyCharacterLimit(
+            [
+              `# ${fn.name}`,
+              "",
+              fn.url,
+              ...(fn.description ? ["", fn.description] : []),
+              "",
+              markdownBullets(
+                `Ingredients (page ${fn.ingredients.page})`,
+                refLines(fn.ingredients.items),
+              ) +
+                morePagesNote(fn.ingredients.hasMore, fn.ingredients.page + 1),
+            ].join("\n"),
+          ) + (bounded.truncated ? truncationNote() : "");
 
         return {
-          content: [{ type: "text", text: applyCharacterLimit(text) }],
-          structuredContent: fn,
+          content: [{ type: "text", text }],
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

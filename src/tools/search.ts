@@ -4,9 +4,11 @@ import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
 import {
   applyCharacterLimit,
+  boundStructured,
   markdownBullets,
   morePagesNote,
   refLines,
+  truncationNote,
 } from "../lib/format.js";
 import { paginatedSchema, refSchema } from "../lib/schemas.js";
 
@@ -75,7 +77,7 @@ export function registerSearchTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({ query, tab, page }) => {
+    async ({ query, tab, page }, ctx) => {
       const client = getClient();
       if (!client.ok) {
         return {
@@ -87,53 +89,66 @@ export function registerSearchTool(server: McpServer): void {
       try {
         // Single tab: one request, results under `results`.
         if (tab) {
-          const result = await client.client.search(query, { tab, page });
-          const output = {
+          const result = await client.client.search(query, {
+            tab,
+            page,
+            signal: ctx.mcpReq.signal,
+          });
+          const bounded = boundStructured({
             query: result.query,
             tab: result.tab,
             results: result.results,
-          };
+          });
           const text =
-            markdownBullets(
-              `Search "${result.query}" — ${result.tab} (page ${result.results.page})`,
-              refLines(result.results.items),
-            ) + morePagesNote(result.results.hasMore, result.results.page + 1);
+            applyCharacterLimit(
+              markdownBullets(
+                `Search "${result.query}" — ${result.tab} (page ${result.results.page})`,
+                refLines(result.results.items),
+              ) +
+                morePagesNote(result.results.hasMore, result.results.page + 1),
+            ) + (bounded.truncated ? truncationNote() : "");
 
           return {
-            content: [{ type: "text", text: applyCharacterLimit(text) }],
-            structuredContent: output,
+            content: [{ type: "text", text }],
+            structuredContent: bounded.value,
           };
         }
 
         // Both tabs, paginated independently.
-        const result = await client.client.search(query, { page });
-        const output = {
+        const result = await client.client.search(query, {
+          page,
+          signal: ctx.mcpReq.signal,
+        });
+        const bounded = boundStructured({
           query: result.query,
           products: result.products,
           ingredients: result.ingredients,
-        };
-        const text = [
-          `Search "${result.query}" (page ${page})`,
-          "",
-          "## Products",
-          ...(result.products.items.length > 0
-            ? refLines(result.products.items).map((line) => `- ${line}`)
-            : ["- (none)"]),
-          morePagesNote(result.products.hasMore, result.products.page + 1),
-          "",
-          "## Ingredients",
-          ...(result.ingredients.items.length > 0
-            ? refLines(result.ingredients.items).map((line) => `- ${line}`)
-            : ["- (none)"]),
-          morePagesNote(
-            result.ingredients.hasMore,
-            result.ingredients.page + 1,
-          ),
-        ].join("\n");
+        });
+        const text =
+          applyCharacterLimit(
+            [
+              `Search "${result.query}" (page ${page})`,
+              "",
+              "## Products",
+              ...(result.products.items.length > 0
+                ? refLines(result.products.items).map((line) => `- ${line}`)
+                : ["- (none)"]),
+              morePagesNote(result.products.hasMore, result.products.page + 1),
+              "",
+              "## Ingredients",
+              ...(result.ingredients.items.length > 0
+                ? refLines(result.ingredients.items).map((line) => `- ${line}`)
+                : ["- (none)"]),
+              morePagesNote(
+                result.ingredients.hasMore,
+                result.ingredients.page + 1,
+              ),
+            ].join("\n"),
+          ) + (bounded.truncated ? truncationNote() : "");
 
         return {
-          content: [{ type: "text", text: applyCharacterLimit(text) }],
-          structuredContent: output,
+          content: [{ type: "text", text }],
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

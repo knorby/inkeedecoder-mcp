@@ -3,7 +3,11 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod/v4";
 import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
-import { applyCharacterLimit } from "../lib/format.js";
+import {
+  applyCharacterLimit,
+  boundStructured,
+  truncationNote,
+} from "../lib/format.js";
 import { resolveEntityId } from "../lib/ids.js";
 import { productSchema } from "../lib/schemas.js";
 
@@ -172,20 +176,23 @@ export function registerGetProductTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({
-      id,
-      brand,
-      description,
-      ingredients,
-      images,
-      hashtags,
-      full_name,
-      functions,
-      skim_table,
-      dates,
-      tooltips,
-      long_descriptions,
-    }) => {
+    async (
+      {
+        id,
+        brand,
+        description,
+        ingredients,
+        images,
+        hashtags,
+        full_name,
+        functions,
+        skim_table,
+        dates,
+        tooltips,
+        long_descriptions,
+      },
+      ctx,
+    ) => {
       const resolved = resolveEntityId(id, "products");
       if (!resolved.ok) {
         return {
@@ -215,13 +222,21 @@ export function registerGetProductTool(server: McpServer): void {
           dates,
           tooltips,
           longDescriptions: long_descriptions,
+          signal: ctx.mcpReq.signal,
         });
+
+        const bounded = boundStructured(product);
 
         return {
           content: [
-            { type: "text", text: applyCharacterLimit(renderProduct(product)) },
+            {
+              type: "text",
+              text:
+                applyCharacterLimit(renderProduct(product)) +
+                (bounded.truncated ? truncationNote() : ""),
+            },
           ],
-          structuredContent: product,
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

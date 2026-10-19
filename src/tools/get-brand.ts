@@ -4,9 +4,11 @@ import { getClient } from "../lib/client.js";
 import { toUserMessage } from "../lib/errors.js";
 import {
   applyCharacterLimit,
+  boundStructured,
   markdownBullets,
   morePagesNote,
   refLines,
+  truncationNote,
 } from "../lib/format.js";
 import { resolveEntityId } from "../lib/ids.js";
 import { paginatedSchema, refSchema } from "../lib/schemas.js";
@@ -58,7 +60,7 @@ export function registerGetBrandTool(server: McpServer): void {
         openWorldHint: true,
       },
     },
-    async ({ id, page }) => {
+    async ({ id, page }, ctx) => {
       const resolved = resolveEntityId(id, "brands");
       if (!resolved.ok) {
         return {
@@ -76,22 +78,31 @@ export function registerGetBrandTool(server: McpServer): void {
       }
 
       try {
-        const brand = await client.client.getBrand(resolved.path, { page });
+        const brand = await client.client.getBrand(resolved.path, {
+          page,
+          signal: ctx.mcpReq.signal,
+        });
 
-        const text = [
-          `# ${brand.name}`,
-          "",
-          brand.url,
-          "",
-          markdownBullets(
-            `Products (page ${brand.products.page})`,
-            refLines(brand.products.items),
-          ) + morePagesNote(brand.products.hasMore, brand.products.page + 1),
-        ].join("\n");
+        const bounded = boundStructured(brand);
+
+        const text =
+          applyCharacterLimit(
+            [
+              `# ${brand.name}`,
+              "",
+              brand.url,
+              "",
+              markdownBullets(
+                `Products (page ${brand.products.page})`,
+                refLines(brand.products.items),
+              ) +
+                morePagesNote(brand.products.hasMore, brand.products.page + 1),
+            ].join("\n"),
+          ) + (bounded.truncated ? truncationNote() : "");
 
         return {
-          content: [{ type: "text", text: applyCharacterLimit(text) }],
-          structuredContent: brand,
+          content: [{ type: "text", text }],
+          structuredContent: bounded.value,
         };
       } catch (error) {
         return {

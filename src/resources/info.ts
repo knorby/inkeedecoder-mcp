@@ -40,6 +40,12 @@ export function registerInfoResource(server: McpServer): void {
                 about:
                   "INKEEDecoder (formerly INCIDecoder) is a community-run database of cosmetic products and ingredients. This server is not affiliated with it.",
                 baseUrl: config.ok ? config.config.INKEEDECODER_BASE_URL : null,
+                requestIntervalMs: config.ok
+                  ? config.config.INKEEDECODER_REQUEST_INTERVAL_MS
+                  : null,
+                timeoutMs: config.ok
+                  ? config.config.INKEEDECODER_TIMEOUT_MS
+                  : null,
                 acceptedLinkHosts: ALLOWED_HOSTS,
                 configError: config.ok ? null : config.error,
               },

@@ -2,13 +2,7 @@ name: Release
 
 # Publishes to npm via OIDC trusted publishing — no NPM_TOKEN secret needed.
 #
-# STAGED WORKFLOW: this file lives in `workflow-templates/` and is INERT in
-# the template repo. GitHub only picks up workflows from
-# `.github/workflows/`. To activate it in a repo created from this template:
-#
-#   git mv workflow-templates/release.yml .github/workflows/release.yml
-#
-# Prerequisites (one-time setup, see README "Releasing"):
+# Prerequisites (one-time setup, see CONTRIBUTING.md "Versioning and releases"):
 #   - A GitHub environment named `release` (repo Settings → Environments).
 #   - A trusted publisher configured on npmjs.com for this package pointing
 #     at this repository, workflow path `.github/workflows/release.yml`, and
