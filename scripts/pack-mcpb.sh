@@ -25,9 +25,13 @@ cp package.json package-lock.json manifest.json README.md LICENSE "$STAGING/"
 (cd "$STAGING" && npm ci --omit=dev --ignore-scripts >/dev/null)
 
 # Pack
-npx --yes @anthropic-ai/mcpb pack "$STAGING" "$OUTPUT"
+# CLI version is pinned: a new mcpb release must never change what a
+# release-time pack produces without a deliberate bump here.
+npx --yes @anthropic-ai/mcpb@2.1.2 pack "$STAGING" "$OUTPUT"
 
-SIZE_MB=$(( $(stat -f%z "$OUTPUT") / 1024 / 1024 ))
+# Node is guaranteed here (it just built the app) and fs.statSync is
+# cross-platform; BSD/GNU stat disagree on how to ask for byte size.
+SIZE_MB=$(node -p "Math.floor(require('fs').statSync(process.argv[1]).size / 1048576)" "$OUTPUT")
 echo "Packed ${OUTPUT} (${SIZE_MB} MB)"
 if [ "$SIZE_MB" -gt "$SIZE_LIMIT_MB" ]; then
   echo "WARNING: bundle exceeds ${SIZE_LIMIT_MB} MB — check for unwanted dependencies:" >&2
