@@ -18,9 +18,10 @@ name: Release
 #     changesets) and opens or updates a "Version Packages" pull request.
 #     Merging that PR triggers this workflow again, landing in publish mode.
 #   - new version not yet on
-#     npm (no changesets left) -> `pack` job builds and packs the packages;
-#     `publish` job publishes via OIDC, pushes git tags, and creates a
-#     GitHub Release.
+#     npm (no changesets left) -> `pack` job builds and packs the packages
+#     (and the MCPB bundle for Claude Desktop); `publish` job publishes via
+#     OIDC, pushes git tags, creates a GitHub Release, and attaches the
+#     MCPB bundle to it.
 #   - nothing to do             -> all downstream jobs are skipped (no-op).
 #
 # Permissions follow the changesets trusted-publishing guidance: top-level
@@ -103,6 +104,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Pack MCPB bundle for Claude Desktop
+        run: npm run pack:mcpb
+      - name: Upload MCPB bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: "*.mcpb"
+          if-no-files-found: error
+          retention-days: 7
       - name: Pack packages for publishing
         id: pack
         uses: changesets/action/pack@v2
@@ -130,7 +140,21 @@ jobs:
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@latest
       - run: npm ci
+      - name: Download MCPB bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mcpb-bundle
+          path: mcpb-bundle
       - name: Publish packed packages
         uses: changesets/action/publish@v2
         with:
           pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
+      # changesets/action/publish creates the GitHub Release tagged
+      # v<version>; attach the MCPB bundle built by the pack job so users can
+      # one-click install into Claude Desktop.
+      - name: Attach MCPB bundle to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          gh release upload "v${VERSION}" mcpb-bundle/*.mcpb --clobber

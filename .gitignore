@@ -33,3 +33,7 @@ docs/superpowers/
 *.log
 *.bak
 .env*
+
+# --- MCPB packaging ---
+.mcpb-staging/
+*.mcpb
