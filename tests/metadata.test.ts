@@ -13,6 +13,9 @@ const REGISTRY_NAME = "io.github.knorby/inkeedecoder-mcp";
 const REGISTRY_SCHEMA =
   "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json";
 const MCPB_NAME = "inkeedecoder-mcp";
+// MCPB's path-substitution token is "${__dirname}"; spelled out in parts so
+// the linter does not mistake it for a JS template placeholder.
+const DIRNAME_ARG = "${" + "__dirname}/dist/index.js";
 
 const pkg = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
@@ -97,11 +100,8 @@ describe("mcpb manifest consistency", () => {
     expect(manifest.server.entry_point).toBe("dist/index.js");
   });
 
-  it("manifest mcp_config runs the entry point through node with ${__dirname}", () => {
+  it("manifest mcp_config runs the entry point through node with the dirname token", () => {
     expect(manifest.server.mcp_config.command).toBe("node");
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: MCPB substitution syntax, not a JS template
-    expect(manifest.server.mcp_config.args).toContain(
-      "${__dirname}/dist/index.js",
-    );
+    expect(manifest.server.mcp_config.args).toContain(DIRNAME_ARG);
   });
 });
