@@ -1,5 +1,6 @@
 {
   "name": "@knorby/inkeedecoder-mcp",
+  "mcpName": "io.github.knorby/inkeedecoder-mcp",
   "version": "0.1.0",
   "description": "MCP server for INKEEDecoder (formerly INCIDecoder) cosmetic ingredient and product data — search products and ingredients, read ingredient profiles, and resolve incidecoder.com links.",
   "license": "Apache-2.0",
