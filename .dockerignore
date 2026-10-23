@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+docs
+tests
+scripts
+.github
+.husky
+.changeset
+.serena
+*.mcpb
+.mcpb-staging/
+.DS_Store
+*.log

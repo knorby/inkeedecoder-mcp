@@ -1,0 +1,75 @@
+{
+  "manifest_version": "0.3",
+  "name": "inkeedecoder-mcp",
+  "display_name": "INKEEDecoder",
+  "version": "0.1.0",
+  "description": "Search INKEEDecoder cosmetic product and ingredient data over MCP.",
+  "author": {
+    "name": "knorby",
+    "url": "https://github.com/knorby"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/knorby/inkeedecoder-mcp.git"
+  },
+  "homepage": "https://github.com/knorby/inkeedecoder-mcp#readme",
+  "support": "https://github.com/knorby/inkeedecoder-mcp/issues",
+  "license": "Apache-2.0",
+  "keywords": [
+    "mcp",
+    "inkeedecoder",
+    "incidecoder",
+    "cosmetics",
+    "skincare",
+    "ingredients"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/dist/index.js"],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "inkeedecoder_search",
+      "description": "Search INKEEDecoder products and ingredients by name."
+    },
+    {
+      "name": "inkeedecoder_search_products",
+      "description": "Advanced product search filtered by ingredients a product must or must not contain."
+    },
+    {
+      "name": "inkeedecoder_get_product",
+      "description": "Read a product page: brand, description, and full ingredient list."
+    },
+    {
+      "name": "inkeedecoder_get_ingredient",
+      "description": "Read an ingredient page: functions, rating, irritancy, and comedogenicity."
+    },
+    {
+      "name": "inkeedecoder_get_ingredient_products",
+      "description": "List products that contain a given ingredient."
+    },
+    {
+      "name": "inkeedecoder_get_brand",
+      "description": "Read a brand and its catalogue."
+    },
+    {
+      "name": "inkeedecoder_get_ingredient_function",
+      "description": "Read an ingredient function (for example emollient) and the ingredients filed under it."
+    },
+    {
+      "name": "inkeedecoder_ping",
+      "description": "Connectivity and configuration check; sends no request to the site."
+    }
+  ],
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=22"
+    }
+  }
+}
