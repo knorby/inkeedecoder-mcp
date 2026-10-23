@@ -90,6 +90,7 @@ scanning). Both are needed for full coverage.
 | `npm run inspect` | Open the MCP Inspector web UI against the built server |
 | `npm run inspect:cli` | Call `tools/list` through the Inspector CLI |
 | `npm run test:smoke` | Inspector CLI smoke test against `dist/` (used by CI) |
+| `npm run pack:mcpb` | Build the `.mcpb` bundle for Claude Desktop from a production-only staging tree |
 | `npm run lint` | Lint + formatting check with Biome (read-only) |
 | `npm run format` | Format with Biome (writes changes) |
 | `npm run check` | Lint + format in one pass (writes changes) |
@@ -180,8 +181,27 @@ PRs and release them all at once.
   `version` | `pack` → `publish`); `id-token: write` is scoped to the publish
   job only.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
-  to confirm only `dist/`, `README.md`, `CHANGELOG.md`, and `LICENSE` are
-  included.
+  to confirm only `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`, and
+  `SKILL.md` are included.
+
+### Distribution metadata
+
+Repo-root `server.json` (Official MCP Registry), `manifest.json` (MCPB for
+Claude Desktop), `smithery.yaml` (Smithery), and the `Dockerfile` (Smithery
+container / Glama) repeat name and version values from `package.json`.
+`tests/metadata.test.ts` pins every relationship — a version bump that
+misses one of them fails the suite. `package.json` also carries `mcpName`
+(`io.github.knorby/inkeedecoder-mcp`), the registry's ownership marker.
+
+After each npm release:
+
+- the release workflow attaches the `.mcpb` bundle to the GitHub Release;
+- publishing to the Official MCP Registry is manual: `mcp-publisher login
+  github` once, then `mcp-publisher validate && mcp-publisher publish` from
+  the repo root (see `docs/publishing-registries.md`);
+- Smithery and Glama pick the repo up from their scanners — no publish step,
+  but re-check their current docs before editing `smithery.yaml` or the
+  `Dockerfile`.
 
 ### One-time release setup (repository owner)
 
