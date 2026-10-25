@@ -50,12 +50,19 @@ export const ALLOWED_HOSTS = [
   "www.incidecoder.com",
 ] as const;
 
-/** Reads `version` from the package manifest next to this module's root. */
-function readPackageVersion(): string {
+/**
+ * Reads `version` from a package manifest, defaulting to the one beside this
+ * module's root.
+ *
+ * @param url Manifest to read. Tests pass other files to exercise the
+ *   fallbacks; the default never has to be constructed by a caller.
+ */
+export function readPackageVersion(url?: URL): string {
   try {
-    const pkg = JSON.parse(
-      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    ) as { version?: unknown };
+    const manifest = url ?? new URL("../package.json", import.meta.url);
+    const pkg = JSON.parse(readFileSync(manifest, "utf8")) as {
+      version?: unknown;
+    };
     return typeof pkg.version === "string" && pkg.version.length > 0
       ? pkg.version
       : "0.0.0";

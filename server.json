@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.knorby/inkeedecoder-mcp",
+  "title": "INKEEDecoder",
+  "description": "Search INKEEDecoder cosmetic product and ingredient data over MCP.",
+  "repository": {
+    "url": "https://github.com/knorby/inkeedecoder-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@knorby/inkeedecoder-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "INKEEDECODER_BASE_URL",
+          "description": "Override the site base URL (for mirrors).",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "INKEEDECODER_REQUEST_INTERVAL_MS",
+          "description": "Minimum milliseconds between requests (floor applies to the live site).",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        },
+        {
+          "name": "INKEEDECODER_TIMEOUT_MS",
+          "description": "Per-request timeout in milliseconds.",
+          "isRequired": false,
+          "format": "number",
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

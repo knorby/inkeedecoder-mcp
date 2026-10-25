@@ -90,6 +90,7 @@ scanning). Both are needed for full coverage.
 | `npm run inspect` | Open the MCP Inspector web UI against the built server |
 | `npm run inspect:cli` | Call `tools/list` through the Inspector CLI |
 | `npm run test:smoke` | Inspector CLI smoke test against `dist/` (used by CI) |
+| `npm run pack:mcpb` | Build the `.mcpb` bundle for Claude Desktop from a production-only staging tree |
 | `npm run lint` | Lint + formatting check with Biome (read-only) |
 | `npm run format` | Format with Biome (writes changes) |
 | `npm run check` | Lint + format in one pass (writes changes) |
@@ -133,13 +134,20 @@ scanning). Both are needed for full coverage.
   binary through `StdioClientTransport` and skips itself when `dist/` is absent.
 - **Inspect manually with** `npm run inspect` (web UI) or
   `npm run inspect:cli` (scriptable `tools/list`).
+- **Coverage is ratcheted** in `vitest.config.ts` (statements/lines 99,
+  branches 89, functions 100). `src/index.ts` is excluded: it is the stdio
+  entrypoint, only exercised as a spawned child by `tests/stdio.test.ts`.
+  CI runs `npm run test:coverage` and uploads `coverage/lcov.info` to
+  [Codecov](https://codecov.io/gh/knorby/inkeedecoder-mcp) using OIDC
+  (`use_oidc`, no secret) — activate the repo on Codecov for the badge to
+  resolve.
 - **GitHub Actions** runs the full check suite on every push to `main` and on
   PRs against `main` (see `.github/workflows/tests.yml`):
   - `npm run lint` (Biome — lint + formatting; formatting is enforced in CI,
     so run `npm run check` before committing if hooks are skipped)
   - `npm run typecheck` (tsc, src + tests)
   - `npm run build` (tsup)
-  - `npm test` (Vitest)
+  - `npm run test:coverage` (Vitest; enforces the ratcheted coverage thresholds and uploads to Codecov)
   - `npm run test:smoke` (MCP Inspector CLI `tools/list` against `dist/`)
   - `npm audit --audit-level=moderate` (vulnerability scan)
 - The **pre-commit suite** (file hygiene + secret scanning) also runs in CI
@@ -180,8 +188,27 @@ PRs and release them all at once.
   `version` | `pack` → `publish`); `id-token: write` is scoped to the publish
   job only.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
-  to confirm only `dist/`, `README.md`, `CHANGELOG.md`, and `LICENSE` are
-  included.
+  to confirm only `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`, and
+  `SKILL.md` are included.
+
+### Distribution metadata
+
+Repo-root `server.json` (Official MCP Registry), `manifest.json` (MCPB for
+Claude Desktop), `smithery.yaml` (Smithery), and the `Dockerfile` (Smithery
+container / Glama) repeat name and version values from `package.json`.
+`tests/metadata.test.ts` pins every relationship — a version bump that
+misses one of them fails the suite. `package.json` also carries `mcpName`
+(`io.github.knorby/inkeedecoder-mcp`), the registry's ownership marker.
+
+After each npm release:
+
+- the release workflow attaches the `.mcpb` bundle to the GitHub Release;
+- publishing to the Official MCP Registry is manual: `mcp-publisher login
+  github` once, then `mcp-publisher validate && mcp-publisher publish` from
+  the repo root (see `docs/publishing-registries.md`);
+- Smithery and Glama pick the repo up from their scanners — no publish step,
+  but re-check their current docs before editing `smithery.yaml` or the
+  `Dockerfile`.
 
 ### One-time release setup (repository owner)
 

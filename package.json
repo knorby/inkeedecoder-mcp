@@ -1,5 +1,6 @@
 {
   "name": "@knorby/inkeedecoder-mcp",
+  "mcpName": "io.github.knorby/inkeedecoder-mcp",
   "version": "0.1.0",
   "description": "MCP server for INKEEDecoder (formerly INCIDecoder) cosmetic ingredient and product data — search products and ingredients, read ingredient profiles, and resolve incidecoder.com links.",
   "license": "Apache-2.0",
@@ -37,7 +38,8 @@
     "dist",
     "README.md",
     "CHANGELOG.md",
-    "LICENSE"
+    "LICENSE",
+    "SKILL.md"
   ],
   "engines": {
     "node": ">=22"
@@ -55,6 +57,7 @@
     "inspect": "mcp-inspector --config inspector.config.json",
     "inspect:cli": "mcp-inspector --cli --config inspector.config.json --server local --method tools/list",
     "test:smoke": "mcp-inspector --cli --config inspector.config.json --server local --method tools/list",
+    "pack:mcpb": "bash scripts/pack-mcpb.sh",
     "release": "npm run build && changeset publish",
     "prepare": "husky"
   },
@@ -72,12 +75,12 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.2",
     "@changesets/cli": "^3.0.3",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@modelcontextprotocol/client": "^2.3.1",
-    "@modelcontextprotocol/inspector": "^2.11.0",
+    "@modelcontextprotocol/inspector": "^2.12.0",
     "@types/node": "^26.6.5",
     "@vitest/coverage-v8": "^5.0.5",
     "husky": "^9.1.7",

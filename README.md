@@ -1,5 +1,14 @@
 # @knorby/inkeedecoder-mcp
 
+[![Codecov](https://codecov.io/gh/knorby/inkeedecoder-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/knorby/inkeedecoder-mcp)
+[![Tests](https://github.com/knorby/inkeedecoder-mcp/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/knorby/inkeedecoder-mcp/actions/workflows/tests.yml)
+[![npm version](https://img.shields.io/npm/v/@knorby/inkeedecoder-mcp.svg)](https://www.npmjs.com/package/@knorby/inkeedecoder-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/@knorby/inkeedecoder-mcp.svg)](https://www.npmjs.com/package/@knorby/inkeedecoder-mcp)
+[![MCP](https://img.shields.io/badge/MCP-server-6E56CF)](https://modelcontextprotocol.io)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/github/license/knorby/inkeedecoder-mcp.svg)](https://github.com/knorby/inkeedecoder-mcp/blob/main/LICENSE)
+
 An MCP (Model Context Protocol) server for [INKEEDecoder](https://inkeedecoder.com)
 — the community-run database of cosmetic products and ingredients, formerly
 known as INCIDecoder.
@@ -66,6 +75,27 @@ From a local checkout, point at the built entrypoint instead:
 Config file locations vary by host: `claude_desktop_config.json`,
 `.cursor/mcp.json`, `.vscode/mcp.json`, or `claude mcp add` on the CLI. There
 is no API key to configure — the server reads public pages.
+
+### One-click in Claude Desktop
+
+Every release ships an [MCPB bundle](https://github.com/anthropics/mcpb) —
+`inkeedecoder-mcp-<version>.mcpb` — attached to its
+[GitHub Releases](https://github.com/knorby/inkeedecoder-mcp/releases) page.
+Download it and open it with Claude Desktop (macOS or Windows) to install
+with a single click.
+
+### Directories and registries
+
+- **Official MCP Registry** — listed as `io.github.knorby/inkeedecoder-mcp`
+  ([registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io));
+  metadata lives in `server.json`.
+- **Smithery** — `smithery.yaml` at the repo root; submit or install from
+  [smithery.ai](https://smithery.ai).
+- **Glama** — indexed from this repository at
+  [glama.ai/mcp/servers](https://glama.ai/mcp/servers); the `Dockerfile`
+  covers container-based installs.
+
+See `docs/publishing-registries.md` for how each channel is maintained.
 
 ### Configuration
 
