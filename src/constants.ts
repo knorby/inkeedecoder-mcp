@@ -51,11 +51,11 @@ export const ALLOWED_HOSTS = [
 ] as const;
 
 /** Reads `version` from the package manifest next to this module's root. */
-function readPackageVersion(): string {
+export function readPackageVersion(
+  url: URL = new URL("../package.json", import.meta.url),
+): string {
   try {
-    const pkg = JSON.parse(
-      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    ) as { version?: unknown };
+    const pkg = JSON.parse(readFileSync(url, "utf8")) as { version?: unknown };
     return typeof pkg.version === "string" && pkg.version.length > 0
       ? pkg.version
       : "0.0.0";

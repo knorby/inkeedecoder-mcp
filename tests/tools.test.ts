@@ -1112,3 +1112,259 @@ describe("error handling", () => {
     expect(textOf(result)).toContain("could not reach");
   });
 });
+
+/**
+ * One call per tool for a failure mode the happy-path suites above do not
+ * reach: a broken environment, an id of the wrong kind, and an HTTP failure
+ * from the site. Each tool must return an actionable result, never throw.
+ */
+const EVERY_TOOL = [
+  ["inkeedecoder_ping", {}],
+  ["inkeedecoder_search", { query: "squalane" }],
+  ["inkeedecoder_search_products", { query: "squalane" }],
+  ["inkeedecoder_get_product", { id: "squalane" }],
+  ["inkeedecoder_get_ingredient", { id: "squalane" }],
+  ["inkeedecoder_get_ingredient_products", { id: "squalane" }],
+  ["inkeedecoder_get_brand", { id: "squalane" }],
+  ["inkeedecoder_get_ingredient_function", { id: "squalane" }],
+] as const;
+
+describe("broken configuration", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    process.env.INKEEDECODER_BASE_URL = "not a url";
+    resetConfig();
+    resetClient();
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await harness?.close();
+  });
+
+  it.each(EVERY_TOOL)(
+    "%s reports the environment problem instead of failing",
+    async (name, args) => {
+      harness = await createTestClient();
+
+      const result = await harness.client.callTool({
+        name,
+        arguments: args as Record<string, unknown>,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("Invalid environment configuration");
+    },
+  );
+
+  it("the info resource reports the problem and nulls the settings", async () => {
+    harness = await createTestClient();
+
+    const result = await harness.client.readResource({ uri: "server://info" });
+    const text = (result.contents[0] as { text?: string } | undefined)?.text;
+    const info = JSON.parse(String(text)) as {
+      baseUrl: string | null;
+      requestIntervalMs: number | null;
+      timeoutMs: number | null;
+      configError: string | null;
+    };
+
+    expect(info.baseUrl).toBeNull();
+    expect(info.requestIntervalMs).toBeNull();
+    expect(info.timeoutMs).toBeNull();
+    expect(info.configError).toContain("Invalid environment configuration");
+  });
+});
+
+describe("ids of the wrong kind", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    stubSite();
+    harness = undefined as unknown as TestHarness;
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await harness?.close();
+  });
+
+  it.each([
+    [
+      "inkeedecoder_get_product",
+      "ingredients/squalane",
+      "inkeedecoder_get_ingredient",
+    ],
+    [
+      "inkeedecoder_get_ingredient",
+      "products/squalane",
+      "inkeedecoder_get_product",
+    ],
+    [
+      "inkeedecoder_get_ingredient_products",
+      "products/squalane",
+      "inkeedecoder_get_product",
+    ],
+    ["inkeedecoder_get_brand", "products/squalane", "inkeedecoder_get_product"],
+    [
+      "inkeedecoder_get_ingredient_function",
+      "ingredients/squalane",
+      "inkeedecoder_get_ingredient",
+    ],
+  ])("%s points %s at the right tool", async (name, id, suggestion) => {
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name,
+      arguments: { id },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(suggestion);
+  });
+
+  it("rejects a whitespace-only id as empty", async () => {
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_ingredient",
+      arguments: { id: "   " },
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain("got an empty value");
+  });
+});
+
+describe("site failures per tool", () => {
+  let harness: TestHarness;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("not found", {
+            status: 404,
+            statusText: "Not Found",
+          }),
+      ),
+    );
+  });
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await harness?.close();
+  });
+
+  it.each(EVERY_TOOL.filter(([name]) => name !== "inkeedecoder_ping"))(
+    "%s maps a 404 to a stale-slug recovery",
+    async (name, args) => {
+      harness = await createTestClient();
+
+      const result = await harness.client.callTool({
+        name,
+        arguments: args as Record<string, unknown>,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textOf(result)).toContain("not found (HTTP 404)");
+    },
+  );
+});
+
+describe("inkeedecoder_get_product section flags", () => {
+  let harness: TestHarness;
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await harness?.close();
+  });
+
+  it("renders nothing but the name when every section is off", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: {
+        id: "the-ordinary-retinol-1-in-squalane",
+        brand: false,
+        description: false,
+        ingredients: false,
+        images: "none",
+        hashtags: false,
+      },
+    });
+
+    const text = textOf(result);
+    expect(text).toContain("# Retinol 1% In Squalane");
+    expect(text).not.toContain("Brand:");
+    expect(text).not.toContain("## Ingredients");
+    expect(text).not.toContain("## Hashtags");
+    expect(text).not.toContain("Also retrieved:");
+  });
+
+  it("lists every extra section when they are all on", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_get_product",
+      arguments: {
+        id: "the-ordinary-retinol-1-in-squalane",
+        images: "all",
+        functions: true,
+        dates: true,
+        tooltips: true,
+      },
+    });
+
+    const text = textOf(result);
+    expect(text).toContain("## Hashtags");
+    expect(text).toContain("image");
+    expect(text).toContain("functions (");
+    expect(text).toContain("dates");
+    expect(text).toContain("tooltips (");
+    expect(text).toContain("Also retrieved:");
+  });
+});
+
+describe("search with one empty tab", () => {
+  let harness: TestHarness;
+
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await harness?.close();
+  });
+
+  it("renders the empty side of a both-tabs search as (none)", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_search",
+      arguments: { query: "the ordinary" },
+    });
+
+    const text = textOf(result);
+    expect(text).toContain("## Products");
+    expect(text).toContain("## Ingredients");
+    expect(text).toContain("- (none)");
+  });
+
+  it("renders an empty single-tab search as (none)", async () => {
+    stubSite();
+    harness = await createTestClient();
+
+    const result = await harness.client.callTool({
+      name: "inkeedecoder_search",
+      arguments: { query: "the ordinary", tab: "ingredients" },
+    });
+
+    const out = structured<{ results: Page<Ref> }>(result);
+    expect(out.results.items).toHaveLength(0);
+    expect(textOf(result)).toContain("- (none)");
+  });
+});
