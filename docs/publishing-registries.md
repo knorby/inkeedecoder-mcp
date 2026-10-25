@@ -9,6 +9,11 @@ and Glama — and which steps are automatic versus manual.
 `package.json` is the single source of truth. `server.json`, `manifest.json`,
 and their relationship to it are pinned by `tests/metadata.test.ts` — a
 release that bumps one file and not the others fails the suite at PR time.
+Versions are the exception: `changeset version` only bumps `package.json`, so
+the versions in `server.json`/`manifest.json` are updated by hand after each
+release (a small follow-up PR) before `mcp-publisher publish` — the publisher
+rejects a version that does not match the npm package, which is the
+enforcement point.
 
 ## Official MCP Registry
 
@@ -31,8 +36,8 @@ validation fails.
 
 `npm run pack:mcpb` builds `inkeedecoder-mcp-<version>.mcpb` from
 `manifest.json` plus a production-only staging tree (devDependencies never
-enter the bundle). The release workflow builds and attaches the bundle to the
-GitHub Release; users double-click it to install into Claude Desktop (the
+enter the bundle). The release workflow builds and attaches the bundle to the GitHub Release it
+creates; users double-click it to install into Claude Desktop (the
 format was formerly DXT; see <https://github.com/anthropics/mcpb>).
 
 ## Smithery and Glama

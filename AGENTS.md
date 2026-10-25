@@ -169,24 +169,27 @@ scanning). Both are needed for full coverage.
 ## Versioning and publishing
 
 This repo uses [Changesets](https://github.com/changesets/changesets) for
-versioning. Versioning is **decoupled from merges** — you can merge multiple
-PRs and release them all at once.
+versioning. Pending changesets open a **Version Packages** pull request
+(created with the built-in `GITHUB_TOKEN`, not a PAT); merging that PR
+publishes.
 
 - **Before a PR that changes published output**: run `npx changeset`, select
   bump type (patch/minor/major), write a summary. Commit the generated
   `.changeset/*.md` file alongside the code change.
-- **To release**: `npx changeset version` (bumps `package.json` +
-  `CHANGELOG.md`), then `npm run release` (builds + publishes).
-- **GitHub Actions release** (`.github/workflows/release.yml`): runs on every
-  push to `main` (and via `workflow_dispatch`, e.g. to retry after a transient
-  publish failure). With no pending changesets it is a no-op. With changesets,
-  it opens a "Version Packages" PR (`changeset version` bumps the version
-  string, updates `CHANGELOG.md`, and removes consumed changesets); merging
-  that PR publishes to npm, tags, and creates a GitHub Release. Publishing
-  uses OIDC trusted publishing — no npm token secrets are involved.
-  Permissions follow the changesets v2 sub-action split (`select-mode` →
-  `version` | `pack` → `publish`); `id-token: write` is scoped to the publish
-  job only.
+- **GitHub Actions release** (`.github/workflows/release.yml`): follows the
+  changesets v2 sub-action flow — `select-mode` → `version` | `pack` →
+  `publish`. With pending changesets, `version` runs `changeset version`
+  (bumps `package.json`, updates `CHANGELOG.md`, consumes the changesets) and
+  opens a Version Packages PR using the built-in `GITHUB_TOKEN`. Merging that
+  PR lands an unpublished version; `pack` builds and packs the npm package and
+  the `.mcpb` bundle; `publish` publishes via OIDC and attaches the bundle to
+  the GitHub Release.
+  `workflow_dispatch` retries the publish/attach half. No PAT or repository
+  secret is involved — only job-scoped `GITHUB_TOKEN` permissions.
+- **Repo setting required**: Settings → Actions → General → Workflow
+  permissions must allow **Read and write permissions** and **Allow GitHub
+  Actions to create and approve pull requests**. That checkbox is what permits
+  the Version Packages PR; it is not a token.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
   to confirm only `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`, and
   `SKILL.md` are included.
@@ -195,13 +198,18 @@ PRs and release them all at once.
 
 Repo-root `server.json` (Official MCP Registry), `manifest.json` (MCPB for
 Claude Desktop), `smithery.yaml` (Smithery), and the `Dockerfile` (Smithery
-container / Glama) repeat name and version values from `package.json`.
-`tests/metadata.test.ts` pins every relationship — a version bump that
-misses one of them fails the suite. `package.json` also carries `mcpName`
+container / Glama) repeat name values from `package.json`.
+`tests/metadata.test.ts` pins the identity fields (names, schema, package
+identifier) — **not versions**: `changeset version` only bumps `package.json`,
+so the versions in `server.json`/`manifest.json` are maintained by hand (see
+below; `mcp-publisher publish` rejects drift, which is the real enforcement
+point). `package.json` also carries `mcpName`
 (`io.github.knorby/inkeedecoder-mcp`), the registry's ownership marker.
 
 After each npm release:
 
+- bump the `version` fields in `server.json` and `manifest.json` to the
+  released version by hand (a small follow-up PR);
 - the release workflow attaches the `.mcpb` bundle to the GitHub Release;
 - publishing to the Official MCP Registry is manual: `mcp-publisher login
   github` once, then `mcp-publisher validate && mcp-publisher publish` from
@@ -218,7 +226,8 @@ package to exist on npm first
 
 1. Repo **Settings → Actions → General → Workflow permissions**: select **Read
    and write permissions**, and check **Allow GitHub Actions to create and
-   approve pull requests**.
+   approve pull requests** (this lets the built-in token open the Version
+   Packages PR; no PAT is needed).
 2. Repo **Settings → Environments**: create an environment named `release`.
 3. On npmjs.com, add a **trusted publisher** for the package. Values must
    match the workflow exactly: this repository, workflow filename
@@ -248,7 +257,8 @@ gh release create v0.1.0 --notes-from-tag
 | --- | --- |
 | `EOTP` errors | A token is being used on a 2FA-enabled account — trusted publishing (no token) avoids this |
 | `ENEEDAUTH` / 401 on publish | npm < 11.5.1 (the workflow upgrades npm), or the trusted-publisher config on npmjs.com does not match exactly (repo, workflow filename, environment) |
-| "not permitted to create pull requests" | Enable "Allow GitHub Actions to create and approve pull requests" in Actions settings |
+| "not permitted to create pull requests" | Enable "Allow GitHub Actions to create and approve pull requests" in Actions settings — this is a repo checkbox, not a token |
+| Version job skipped after a merge | No pending changesets — add one with `npx changeset`; the Version Packages PR is the release path |
 | Provenance warning `provider: null` | Published locally instead of via CI — provenance only works from CI on a public repo |
 | 404 "package not found" right after publishing | npm registry replication lag — retry in a minute |
 

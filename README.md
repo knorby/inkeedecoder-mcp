@@ -333,9 +333,11 @@ Four layers, cheapest first:
 
 Published to npm as `@knorby/inkeedecoder-mcp` from GitHub Actions, with
 [Changesets](https://github.com/changesets/changesets) and OIDC trusted
-publishing — no npm tokens involved. Add a changeset (`npx changeset`) with any
-change that affects published output; the release workflow opens a "Version
-Packages" PR, and merging it publishes. See
+publishing — no npm tokens and no release secrets involved. Add a changeset
+(`npx changeset`) with any change that affects published output; the release
+workflow opens a "Version Packages" PR (using the built-in `GITHUB_TOKEN`, not
+a PAT), and merging it publishes to npm and creates the GitHub Release with
+the `.mcpb` bundle attached. See
 [CONTRIBUTING.md](CONTRIBUTING.md) for the release setup, including the manual
 first publish.
 

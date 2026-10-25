@@ -1,13 +1,10 @@
 name: Release
 
 # Publishes to npm via OIDC trusted publishing — no NPM_TOKEN secret.
-# Prereqs: `release` environment, matching npm trusted publisher, and Actions
-# allowed to create pull requests.
-# Pending changesets open a Version Packages PR; an unpublished version
-# publishes. Actions are pinned by commit SHA; bump deliberately.
-#
-# The pack job also builds the MCPB bundle for Claude Desktop, and the publish
-# job attaches it to the GitHub Release that changesets creates.
+# Prereqs: `release` environment, matching npm trusted publisher, and the repo
+# setting "Allow GitHub Actions to create and approve pull requests" (the
+# built-in GITHUB_TOKEN opens the Version Packages PR; no PAT is involved).
+# Pending changesets open a Version Packages PR; an unpublished version publishes.
 
 on:
   push:
@@ -82,7 +79,9 @@ jobs:
           node-version-file: ".nvmrc"
           cache: npm
       - run: npm ci
-      # pack:mcpb builds the server itself; no separate build step needed.
+      # Keep dist/ independent of the MCPB toolchain: build explicitly before
+      # pack:mcpb (which also builds into its own staging tree).
+      - run: npm run build
       - name: Pack MCPB bundle for Claude Desktop
         run: npm run pack:mcpb
       - name: Upload MCPB bundle artifact
@@ -115,19 +114,19 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # Node 24's bundled npm may not satisfy npm >= 11.5.1 for OIDC.
-      - name: Upgrade npm for OIDC trusted publishing
-        run: npm install -g npm@latest
+      - run: npm install -g npm@latest
       - run: npm ci
+      - name: Publish packed packages
+        uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
+      # Downloaded after publish so an artifact hiccup can never block the
+      # npm publish itself.
       - name: Download MCPB bundle artifact
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: mcpb-bundle
           path: mcpb-bundle
-      - name: Publish packed packages
-        uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
-        with:
-          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
       # changesets/action/publish creates the GitHub Release tagged
       # v<version>; attach the bundle so users can one-click install.
       - name: Attach MCPB bundle to the GitHub Release

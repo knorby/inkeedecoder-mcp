@@ -2,11 +2,11 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * Pins the distribution metadata (package.json, server.json, manifest.json)
- * to a single source of truth: package.json. The Official MCP Registry
- * rejects publishes whose name/version drift from the npm package, and the
- * MCPB manifest embeds the same values — so a release that bumps one file
- * and not the others fails here, at PR time, instead of at publish time.
+ * Pins the identity fields of the distribution metadata (package.json,
+ * server.json, manifest.json) to a single source of truth: package.json.
+ * Version numbers are deliberately NOT pinned — `changeset version` only
+ * bumps package.json, and the versions in server.json/manifest.json are
+ * maintained by hand at registry-publish time (the publisher rejects drift).
  */
 
 const REGISTRY_NAME = "io.github.knorby/inkeedecoder-mcp";
@@ -21,7 +21,6 @@ const pkg = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 ) as {
   name: string;
-  version: string;
   mcpName?: string;
 };
 
@@ -30,12 +29,10 @@ const serverJson = JSON.parse(
 ) as {
   $schema: string;
   name: string;
-  version: string;
   description: string;
   packages: Array<{
     registryType: string;
     identifier: string;
-    version: string;
   }>;
 };
 
@@ -44,7 +41,6 @@ const manifest = JSON.parse(
 ) as {
   manifest_version: string;
   name: string;
-  version: string;
   server: {
     type: string;
     entry_point: string;
@@ -61,10 +57,6 @@ describe("distribution metadata consistency", () => {
     expect(serverJson.name).toBe(pkg.mcpName);
   });
 
-  it("server.json version matches package.json version", () => {
-    expect(serverJson.version).toBe(pkg.version);
-  });
-
   it("server.json references the pinned registry schema", () => {
     expect(serverJson.$schema).toBe(REGISTRY_SCHEMA);
   });
@@ -74,7 +66,6 @@ describe("distribution metadata consistency", () => {
     const entry = serverJson.packages[0];
     expect(entry.registryType).toBe("npm");
     expect(entry.identifier).toBe(pkg.name);
-    expect(entry.version).toBe(pkg.version);
   });
 
   it("server.json description fits the registry's 100-character limit", () => {
@@ -89,10 +80,6 @@ describe("mcpb manifest consistency", () => {
 
   it("manifest name is the machine-readable package basename", () => {
     expect(manifest.name).toBe(MCPB_NAME);
-  });
-
-  it("manifest version matches package.json version", () => {
-    expect(manifest.version).toBe(pkg.version);
   });
 
   it("manifest entry point is the built server entrypoint", () => {
