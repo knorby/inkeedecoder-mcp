@@ -129,14 +129,28 @@ Select the bump type (patch/minor/major) and write a short summary. A new
 push to `main`. The `select-mode` job inspects repo state and picks what
 happens next:
 
-- **changesets found** → the `version` job runs `changeset version` (bumps
-  `package.json`, updates `CHANGELOG.md`, removes the consumed changesets) and
-  opens or updates a "Version Packages" pull request. Merging that PR
-  triggers the workflow again, landing in publish mode.
+- **changesets found** → the `version` job runs the `version` sub-action with
+  `script: npm run version:packages` (`changeset version` plus the
+  `server.json`/`manifest.json` sync) and opens or updates a "Version
+  Packages" pull request. Merging that PR triggers the workflow again, landing
+  in publish mode.
 - **new version not yet on npm** (no changesets left) → the `pack` job builds
-  and packs the package; the `publish` job publishes to npm via OIDC, pushes
-  git tags, and creates a GitHub Release.
+  and packs the npm package plus the `.mcpb` bundle; the `publish` job
+  publishes to npm via OIDC, creates the git tag/GitHub Release, and attaches
+  the bundle.
 - **nothing to do** → all downstream jobs are skipped.
+
+No release secrets are configured. The Version Packages PR is opened with the
+workflow's built-in `GITHUB_TOKEN` (requires the repo setting "Allow GitHub
+Actions to create and approve pull requests"); npm uses OIDC.
+
+**Manual fallback:**
+
+```bash
+npm run version:packages   # changeset version + metadata sync
+npm run release            # builds + publishes to npm
+git push --follow-tags
+```
 
 **First publish (manual, required once):** npm requires a package to exist
 before it can link a trusted publisher, so `@knorby/inkeedecoder-mcp` (0.1.0)
@@ -156,8 +170,9 @@ gh release create v0.1.0 --notes-from-tag
 **One-time setup after the first publish (repository owner):**
 
 1. Repo **Settings → Actions → General → Workflow permissions**: select
-   **Read and write permissions**, and check **Allow GitHub Actions to create
-   and approve pull requests**.
+   **Read and write permissions** (the workflow scopes the token per job;
+   no "Allow GitHub Actions to create and approve pull requests" setting is
+   needed — this flow never opens a PR).
 2. Repo **Settings → Environments**: create an environment named `release`.
 3. On npmjs.com, add a **trusted publisher** for the package. Values must
    match the workflow exactly: this repository, workflow filename `release.yml`,
@@ -166,8 +181,9 @@ gh release create v0.1.0 --notes-from-tag
 
 **Manual release (fallback):**
 ```bash
-npx changeset version    # bumps package.json + generates CHANGELOG.md
-npm run release          # builds + publishes to npm
+npx changeset version                      # bumps package.json + CHANGELOG.md
+npx tsx scripts/sync-metadata-version.ts   # keeps server.json/manifest.json in step
+npm run release                            # builds + publishes to npm
 git add . && git commit -m "chore: release" && git push
 ```
 
@@ -175,7 +191,7 @@ git add . && git commit -m "chore: release" && git push
 
 ```bash
 npm run build
-npm pack --dry-run    # verify only dist/, README.md, CHANGELOG.md, LICENSE
+npm pack --dry-run    # verify only dist/, README.md, CHANGELOG.md, LICENSE, SKILL.md
 ```
 
 ## Publishing security

@@ -1,13 +1,10 @@
 name: Release
 
 # Publishes to npm via OIDC trusted publishing — no NPM_TOKEN secret.
-# Prereqs: `release` environment, matching npm trusted publisher, and Actions
-# allowed to create pull requests.
-# Pending changesets open a Version Packages PR; an unpublished version
-# publishes. Actions are pinned by commit SHA; bump deliberately.
-#
-# The pack job also builds the MCPB bundle for Claude Desktop, and the publish
-# job attaches it to the GitHub Release that changesets creates.
+# Prereqs: `release` environment, matching npm trusted publisher, and the repo
+# setting "Allow GitHub Actions to create and approve pull requests" (the
+# built-in GITHUB_TOKEN opens the Version Packages PR; no PAT is involved).
+# Pending changesets open a Version Packages PR; an unpublished version publishes.
 
 on:
   push:
@@ -62,6 +59,11 @@ jobs:
       - name: Create or update the Version Packages pull request
         id: version
         uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          # Same as `changeset version`, plus the sync that keeps
+          # server.json/manifest.json on the package version. The action
+          # commits the result into the Version Packages PR.
+          script: npm run version:packages
 
   pack:
     name: Build and pack packages
@@ -82,16 +84,15 @@ jobs:
           node-version-file: ".nvmrc"
           cache: npm
       - run: npm ci
-      # pack:mcpb builds the server itself; no separate build step needed.
+      - run: npm run build
       - name: Pack MCPB bundle for Claude Desktop
         run: npm run pack:mcpb
-      - name: Upload MCPB bundle artifact
+      - name: Upload MCPB bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: mcpb-bundle
           path: "*.mcpb"
           if-no-files-found: error
-          retention-days: 7
       - name: Pack packages for publishing
         id: pack
         uses: changesets/action/pack@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
@@ -115,21 +116,17 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # Node 24's bundled npm may not satisfy npm >= 11.5.1 for OIDC.
-      - name: Upgrade npm for OIDC trusted publishing
-        run: npm install -g npm@latest
+      - run: npm install -g npm@latest
       - run: npm ci
-      - name: Download MCPB bundle artifact
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: mcpb-bundle
-          path: mcpb-bundle
       - name: Publish packed packages
         uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
-      # changesets/action/publish creates the GitHub Release tagged
-      # v<version>; attach the bundle so users can one-click install.
+      - name: Download MCPB bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: mcpb-bundle
+          path: mcpb-bundle
       - name: Attach MCPB bundle to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}

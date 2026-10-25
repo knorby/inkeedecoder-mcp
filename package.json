@@ -59,6 +59,7 @@
     "test:smoke": "mcp-inspector --cli --config inspector.config.json --server local --method tools/list",
     "pack:mcpb": "bash scripts/pack-mcpb.sh",
     "release": "npm run build && changeset publish",
+    "version:packages": "changeset version && tsx scripts/sync-metadata-version.ts",
     "prepare": "husky"
   },
   "lint-staged": {
