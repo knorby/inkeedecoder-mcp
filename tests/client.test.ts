@@ -28,9 +28,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.doUnmock("@knorby/inkeedecoder-client");
   vi.resetModules();
-});
-
-afterEach(() => {
   for (const [key, value] of Object.entries(savedEnv)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;

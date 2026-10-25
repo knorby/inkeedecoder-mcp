@@ -17,7 +17,7 @@ export default defineConfig({
       // raise these as fixtures grow.
       thresholds: {
         statements: 99,
-        branches: 89,
+        branches: 90,
         functions: 100,
         lines: 99,
       },

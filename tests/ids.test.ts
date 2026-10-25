@@ -156,10 +156,10 @@ describe("resolveEntityId", () => {
   });
 
   it("uses 'an' for vowel-initial nouns", () => {
-    const resolved = resolveEntityId("/products/squalane", "ingredients");
+    const resolved = resolveEntityId("/ingredients/squalane", "products");
 
     expect(resolved.ok).toBe(false);
-    if (!resolved.ok) expect(resolved.error).toContain("is a product page");
+    if (!resolved.ok) expect(resolved.error).toContain("is an ingredient page");
   });
 
   it("rejects an unrecognizable path prefix", () => {

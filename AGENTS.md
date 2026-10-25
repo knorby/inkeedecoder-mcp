@@ -138,15 +138,16 @@ scanning). Both are needed for full coverage.
   branches 89, functions 100). `src/index.ts` is excluded: it is the stdio
   entrypoint, only exercised as a spawned child by `tests/stdio.test.ts`.
   CI runs `npm run test:coverage` and uploads `coverage/lcov.info` to
-  [Codecov](https://codecov.io/gh/knorby/inkeedecoder-mcp), which needs a
-  `CODECOV_TOKEN` repository secret.
+  [Codecov](https://codecov.io/gh/knorby/inkeedecoder-mcp) using OIDC
+  (`use_oidc`, no secret) — activate the repo on Codecov for the badge to
+  resolve.
 - **GitHub Actions** runs the full check suite on every push to `main` and on
   PRs against `main` (see `.github/workflows/tests.yml`):
   - `npm run lint` (Biome — lint + formatting; formatting is enforced in CI,
     so run `npm run check` before committing if hooks are skipped)
   - `npm run typecheck` (tsc, src + tests)
   - `npm run build` (tsup)
-  - `npm test` (Vitest)
+  - `npm run test:coverage` (Vitest; enforces the ratcheted coverage thresholds and uploads to Codecov)
   - `npm run test:smoke` (MCP Inspector CLI `tools/list` against `dist/`)
   - `npm audit --audit-level=moderate` (vulnerability scan)
 - The **pre-commit suite** (file hygiene + secret scanning) also runs in CI

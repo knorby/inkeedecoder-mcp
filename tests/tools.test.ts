@@ -1139,6 +1139,12 @@ describe("broken configuration", () => {
   });
 
   afterEach(async () => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    resetConfig();
+    resetClient();
     vi.unstubAllGlobals();
     await harness?.close();
   });
@@ -1178,11 +1184,10 @@ describe("broken configuration", () => {
 });
 
 describe("ids of the wrong kind", () => {
-  let harness: TestHarness;
+  let harness: TestHarness | undefined;
 
   beforeEach(() => {
     stubSite();
-    harness = undefined as unknown as TestHarness;
   });
 
   afterEach(async () => {
@@ -1327,7 +1332,7 @@ describe("inkeedecoder_get_product section flags", () => {
     expect(text).toContain("functions (");
     expect(text).toContain("dates");
     expect(text).toContain("tooltips (");
-    expect(text).toContain("Also retrieved:");
+    expect(text).toMatch(/Also retrieved: image, functions/);
   });
 });
 
@@ -1349,9 +1354,8 @@ describe("search with one empty tab", () => {
     });
 
     const text = textOf(result);
-    expect(text).toContain("## Products");
-    expect(text).toContain("## Ingredients");
-    expect(text).toContain("- (none)");
+    expect(text).toMatch(/## Products\n- /);
+    expect(text).toMatch(/## Ingredients\n- \(none\)/);
   });
 
   it("renders an empty single-tab search as (none)", async () => {

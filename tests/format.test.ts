@@ -90,12 +90,24 @@ describe("boundStructured", () => {
     expect((result.value as unknown[]).length).toBe(3);
   });
 
-  it("passes through primitives and nulls inside a value", () => {
-    const value = { count: 3, flag: true, missing: null, empty: undefined };
+  it("passes through primitives and nulls while bounding a large value", () => {
+    const entry = {
+      count: 3,
+      flag: true,
+      missing: null,
+      text: "x".repeat(200),
+    };
+    const value = Array.from({ length: 50 }, () => entry);
 
     const result = boundStructured(value, 1_000);
 
-    expect(result.value).toEqual(value);
+    expect(result.truncated).toBe(true);
+    const bounded = result.value as (typeof entry)[];
+    expect(bounded[0]).toMatchObject({
+      count: 3,
+      flag: true,
+      missing: null,
+    });
   });
 });
 
