@@ -16,5 +16,5 @@
 - [ ] Type checking passes (`npm run typecheck`)
 - [ ] Tests pass (`npm test`)
 - [ ] Build succeeds (`npm run build`)
-- [ ] A changeset has been added (`npx changeset`) if this affects published output
+- [ ] If this change should release: `version` is bumped in `package.json` + `server.json` + `manifest.json`, with a `CHANGELOG.md` entry
 - [ ] Commit message follows [conventional commits](https://www.conventionalcommits.org/)

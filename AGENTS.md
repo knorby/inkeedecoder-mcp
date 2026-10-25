@@ -7,7 +7,7 @@ This is a **local MCP (Model Context Protocol) server** that exposes
 formerly known as INCIDecoder — to MCP hosts. It is a thin wrapper around the
 [`@knorby/inkeedecoder-client`](https://www.npmjs.com/package/@knorby/inkeedecoder-client)
 library, served over stdio, runnable with `npx`, and published to npm as
-`@knorby/inkeedecoder-mcp` via Changesets + OIDC trusted publishing.
+`@knorby/inkeedecoder-mcp` via version-bump pull requests + OIDC trusted publishing.
 
 The client library is deliberately multipurpose and lives in its own repo
 (`~/code/inkeedecoder-client`). **This repo does not parse HTML and does not
@@ -98,7 +98,6 @@ scanning). Both are needed for full coverage.
 | `npm test` | Run tests once (Vitest) |
 | `npm run test:watch` | Run tests in watch mode |
 | `npm run test:coverage` | Run tests with coverage reporting |
-| `npx changeset` | Create a changeset (required for any change that affects published output) |
 
 ---
 
@@ -168,25 +167,23 @@ scanning). Both are needed for full coverage.
 
 ## Versioning and publishing
 
-This repo uses [Changesets](https://github.com/changesets/changesets) for
-versioning. Versioning is **decoupled from merges** — you can merge multiple
-PRs and release them all at once.
+Releases are cut by a **version bump in a pull request** — there is no
+release bot and no pending-changeset queue.
 
-- **Before a PR that changes published output**: run `npx changeset`, select
-  bump type (patch/minor/major), write a summary. Commit the generated
-  `.changeset/*.md` file alongside the code change.
-- **To release**: `npx changeset version` (bumps `package.json` +
-  `CHANGELOG.md`), then `npm run release` (builds + publishes).
+- **To cut a release**: in the release PR, bump `version` in **all three** of
+  `package.json`, `server.json`, and `manifest.json` (pinned equal by
+  `tests/metadata.test.ts`; the suite goes red until they match) and add the
+  `CHANGELOG.md` entry. Merging the PR publishes.
 - **GitHub Actions release** (`.github/workflows/release.yml`): runs on every
-  push to `main` (and via `workflow_dispatch`, e.g. to retry after a transient
-  publish failure). With no pending changesets it is a no-op. With changesets,
-  it opens a "Version Packages" PR (`changeset version` bumps the version
-  string, updates `CHANGELOG.md`, and removes consumed changesets); merging
-  that PR publishes to npm, tags, and creates a GitHub Release. Publishing
-  uses OIDC trusted publishing — no npm token secrets are involved.
-  Permissions follow the changesets v2 sub-action split (`select-mode` →
-  `version` | `pack` → `publish`); `id-token: write` is scoped to the publish
-  job only.
+  push to `main`. A `check` job compares `package.json`'s version against the
+  npm registry; an unpublished version triggers one `release` job (environment
+  `release`): metadata suite → build → `npm publish` via OIDC → pack `.mcpb`
+  → tag + GitHub Release + bundle attach. Already-published versions skip it.
+  `workflow_dispatch` retries the release half; the publish step re-checks
+  the registry, so it never double-publishes. CI never writes to a branch and
+  never opens a PR — a `GITHUB_TOKEN`-opened PR runs no checks, which is how
+  a drifted changeset-release PR once reached npm. No PAT or repository
+  secret is involved. `id-token: write` is scoped to the release job only.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
   to confirm only `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`, and
   `SKILL.md` are included.
@@ -216,9 +213,8 @@ Required **after** the manual first publish — the trusted publisher needs the
 package to exist on npm first
 ([npm/cli#8544](https://github.com/npm/cli/issues/8544)).
 
-1. Repo **Settings → Actions → General → Workflow permissions**: select **Read
-   and write permissions**, and check **Allow GitHub Actions to create and
-   approve pull requests**.
+1. Repo **Settings → Actions → General → Workflow permissions**: select
+   **Read and write permissions** (the workflow scopes the token per job).
 2. Repo **Settings → Environments**: create an environment named `release`.
 3. On npmjs.com, add a **trusted publisher** for the package. Values must
    match the workflow exactly: this repository, workflow filename
@@ -236,7 +232,7 @@ npm login
 npm pkg delete publishConfig.provenance   # provenance needs CI + public repo
 npm run build
 npm pack --dry-run                        # confirm the file list first
-npm run release                           # build + changeset publish
+npm run release                           # build + npm publish
 npm pkg set publishConfig.provenance=true
 git push origin main --follow-tags
 gh release create v0.1.0 --notes-from-tag
@@ -248,7 +244,7 @@ gh release create v0.1.0 --notes-from-tag
 | --- | --- |
 | `EOTP` errors | A token is being used on a 2FA-enabled account — trusted publishing (no token) avoids this |
 | `ENEEDAUTH` / 401 on publish | npm < 11.5.1 (the workflow upgrades npm), or the trusted-publisher config on npmjs.com does not match exactly (repo, workflow filename, environment) |
-| "not permitted to create pull requests" | Enable "Allow GitHub Actions to create and approve pull requests" in Actions settings |
+| Release job skipped after a merge | The merged version was already on npm — bump the version in a PR to release again |
 | Provenance warning `provider: null` | Published locally instead of via CI — provenance only works from CI on a public repo |
 | 404 "package not found" right after publishing | npm registry replication lag — retry in a minute |
 
@@ -320,7 +316,7 @@ These rules are mandatory. Follow them strictly.
 - **Never hardcode the advertised version** — `SERVER_VERSION` is read from
   `package.json` at load in `src/constants.ts`, so a version bump cannot leave
   hosts seeing a stale number.
-- **Add a changeset for anything that changes published output.**
+- **Cut releases by bumping the version triple** (`package.json`, `server.json`, `manifest.json`) in the release PR, with a `CHANGELOG.md` entry.
 
 ### INKEEDecoder-specific rules
 

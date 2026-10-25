@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { readPackageVersion, SERVER_VERSION } from "../src/constants.js";
 
 /**
- * The advertised version comes from package.json at load time so a changeset
+ * The advertised version comes from package.json at load time so a version
  * bump cannot leave hosts seeing a stale number. The fallbacks matter too: an
  * unreadable or malformed manifest must not stop the server from booting.
  */
