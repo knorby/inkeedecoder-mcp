@@ -214,7 +214,6 @@ tests/
   stdio.test.ts         # spawns dist/index.js and calls tools over stdio
 inspector.config.json   # MCP Inspector server config
 dist/                   # build output (gitignored)
-.changeset/             # changeset files (versioning)
 .github/workflows/      # CI + release workflows
 docs/decisions/         # architecture decision records (ADRs)
 ```
@@ -331,13 +330,12 @@ Four layers, cheapest first:
 
 ## Releases
 
-Published to npm as `@knorby/inkeedecoder-mcp` from GitHub Actions, with
-[Changesets](https://github.com/changesets/changesets) and OIDC trusted
-publishing — no npm tokens involved. Add a changeset (`npx changeset`) with any
-change that affects published output; the release workflow opens a "Version
-Packages" PR, and merging it publishes. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for the release setup, including the manual
-first publish.
+Published to npm as `@knorby/inkeedecoder-mcp` from GitHub Actions with OIDC
+trusted publishing — no npm tokens involved. A release is a version bump in a
+PR (`package.json` + `server.json` + `manifest.json`, pinned equal by the test
+suite); merging it publishes, tags, and attaches the `.mcpb` bundle to the
+GitHub Release. See [CONTRIBUTING.md](CONTRIBUTING.md) for the details,
+including the manual first publish.
 
 ## Documentation
 

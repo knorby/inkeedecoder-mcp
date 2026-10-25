@@ -108,35 +108,33 @@ docs: update README with publish instructions
 
 ## Versioning and releases
 
-This repo uses [Changesets](https://github.com/changesets/changesets) for
-versioning. Versioning is **decoupled from merges** — you can merge multiple
+Releases are cut by a **version bump in a pull request**: a PR that raises
+`version` (in `package.json`, `server.json`, and `manifest.json` — pinned
+equal by `tests/metadata.test.ts`) releases on merge. Versioning is **decoupled from merges** — you can merge multiple
 PRs and release them all at once.
 
-### Adding a changeset
+### Cutting a release
 
-Every PR that changes published output should include a changeset:
-
-```bash
-npx changeset
-```
-
-Select the bump type (patch/minor/major) and write a short summary. A new
-`.md` file appears in `.changeset/` — commit it alongside your code.
+In the release PR, bump `version` in **all three** of `package.json`,
+`server.json`, and `manifest.json` (the metadata suite goes red until they
+match), and add the `CHANGELOG.md` entry. Merging the PR publishes.
 
 ### Releasing
 
 **Automated release (default):** `.github/workflows/release.yml` runs on every
-push to `main`. The `select-mode` job inspects repo state and picks what
-happens next:
+push to `main`. A `check` job compares `package.json`'s version against the
+npm registry:
 
-- **changesets found** → the `version` job runs `changeset version` (bumps
-  `package.json`, updates `CHANGELOG.md`, removes the consumed changesets) and
-  opens or updates a "Version Packages" pull request. Merging that PR
-  triggers the workflow again, landing in publish mode.
-- **new version not yet on npm** (no changesets left) → the `pack` job builds
-  and packs the package; the `publish` job publishes to npm via OIDC, pushes
-  git tags, and creates a GitHub Release.
-- **nothing to do** → all downstream jobs are skipped.
+- **version not on npm** (a merged bump) → the `release` job runs the
+  metadata suite, builds, publishes to npm via OIDC, packs the `.mcpb`
+  bundle, and attaches it to the `v<version>` GitHub Release;
+- **version already published** → the release job is skipped;
+- **retry** → `workflow_dispatch` re-runs the release half; `npm publish` is
+  guarded by a registry check and the bundle attach is idempotent.
+
+CI never writes to a branch and never opens a PR — a `GITHUB_TOKEN`-opened
+PR runs no checks, which is how a drifted automated release PR once slipped
+through.
 
 **First publish (manual, required once):** npm requires a package to exist
 before it can link a trusted publisher, so `@knorby/inkeedecoder-mcp` (0.1.0)
@@ -147,7 +145,7 @@ npm login
 npm pkg delete publishConfig.provenance   # provenance needs CI + a public repo
 npm run build
 npm pack --dry-run                        # confirm the file list first
-npm run release                           # build + changeset publish
+npm run release                           # build + npm publish
 npm pkg set publishConfig.provenance=true
 git push origin main --follow-tags
 gh release create v0.1.0 --notes-from-tag
@@ -166,7 +164,7 @@ gh release create v0.1.0 --notes-from-tag
 
 **Manual release (fallback):**
 ```bash
-npx changeset version    # bumps package.json + generates CHANGELOG.md
+# bump version in package.json + server.json + manifest.json by hand
 npm run release          # builds + publishes to npm
 git add . && git commit -m "chore: release" && git push
 ```
@@ -197,9 +195,9 @@ npm pack --dry-run    # verify only dist/, README.md, CHANGELOG.md, LICENSE
 ## Pull request process
 
 1. Create a branch from `main`.
-2. Make your changes + add a changeset (`npx changeset`).
+2. Make your changes; when they should release, cut the release with the same PR (see Releasing).
 3. Ensure all checks pass: `npm run lint && npm run typecheck && npm test &&
    npm run build`.
 4. Open a PR against `main`. CI runs lint, typecheck, build, test, and
    `npm audit`, plus the pre-commit suite (file hygiene + secret scanning).
-5. After review, merge. Release separately via changesets.
+5. After review, merge. Cut releases by bumping the version in a PR (see Releasing).

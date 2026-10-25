@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
  * `SERVER_VERSION` is read from `package.json` at load time. This module sits
  * one directory below the package root in both layouts it runs in — `src/`
  * during development and `dist/` once bundled — so the read keeps working
- * everywhere. Deriving it means a `changeset version` bump cannot leave the
+ * everywhere. Deriving it means a version bump cannot leave the
  * version a host sees stale; the fallback keeps the server usable if the file
  * is unreadable.
  */
