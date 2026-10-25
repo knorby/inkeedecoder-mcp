@@ -1,5 +1,14 @@
 # @knorby/inkeedecoder-mcp
 
+[![Codecov](https://codecov.io/gh/knorby/inkeedecoder-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/knorby/inkeedecoder-mcp)
+[![Tests](https://github.com/knorby/inkeedecoder-mcp/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/knorby/inkeedecoder-mcp/actions/workflows/tests.yml)
+[![npm version](https://img.shields.io/npm/v/@knorby/inkeedecoder-mcp.svg)](https://www.npmjs.com/package/@knorby/inkeedecoder-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/@knorby/inkeedecoder-mcp.svg)](https://www.npmjs.com/package/@knorby/inkeedecoder-mcp)
+[![MCP](https://img.shields.io/badge/MCP-server-6E56CF)](https://modelcontextprotocol.io)
+[![Node](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-7.0-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![License](https://img.shields.io/github/license/knorby/inkeedecoder-mcp.svg)](https://github.com/knorby/inkeedecoder-mcp/blob/main/LICENSE)
+
 An MCP (Model Context Protocol) server for [INKEEDecoder](https://inkeedecoder.com)
 — the community-run database of cosmetic products and ingredients, formerly
 known as INCIDecoder.

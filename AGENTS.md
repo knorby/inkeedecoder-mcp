@@ -134,6 +134,12 @@ scanning). Both are needed for full coverage.
   binary through `StdioClientTransport` and skips itself when `dist/` is absent.
 - **Inspect manually with** `npm run inspect` (web UI) or
   `npm run inspect:cli` (scriptable `tools/list`).
+- **Coverage is ratcheted** in `vitest.config.ts` (statements/lines 99,
+  branches 89, functions 100). `src/index.ts` is excluded: it is the stdio
+  entrypoint, only exercised as a spawned child by `tests/stdio.test.ts`.
+  CI runs `npm run test:coverage` and uploads `coverage/lcov.info` to
+  [Codecov](https://codecov.io/gh/knorby/inkeedecoder-mcp), which needs a
+  `CODECOV_TOKEN` repository secret.
 - **GitHub Actions** runs the full check suite on every push to `main` and on
   PRs against `main` (see `.github/workflows/tests.yml`):
   - `npm run lint` (Biome — lint + formatting; formatting is enforced in CI,
