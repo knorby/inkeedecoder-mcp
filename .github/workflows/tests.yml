@@ -28,7 +28,12 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
-      - run: npm test
+      - run: npm run test:coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage/lcov.info
       # Smoke test: launch the built server through the MCP Inspector CLI and
       # list its tools. Proves the published bin actually speaks MCP — catches
       # a missing shebang, a bundling-only import failure, or a stray write to

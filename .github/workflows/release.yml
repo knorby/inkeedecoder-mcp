@@ -1,38 +1,17 @@
 name: Release
 
-# Publishes to npm via OIDC trusted publishing — no NPM_TOKEN secret needed.
+# Publishes to npm via OIDC trusted publishing — no NPM_TOKEN secret.
+# Prereqs: `release` environment, matching npm trusted publisher, and Actions
+# allowed to create pull requests.
+# Pending changesets open a Version Packages PR; an unpublished version
+# publishes. Actions are pinned by commit SHA; bump deliberately.
 #
-# Prerequisites (one-time setup, see CONTRIBUTING.md "Versioning and releases"):
-#   - A GitHub environment named `release` (repo Settings → Environments).
-#   - A trusted publisher configured on npmjs.com for this package pointing
-#     at this repository, workflow path `.github/workflows/release.yml`, and
-#     environment `release` (all must match exactly).
-#   - npm >= 11.5.1 for OIDC. The publish job pins Node 24 (which ships a
-#     compatible npm) and upgrades to npm@latest anyway, because Node 22's
-#     bundled npm 10.x cannot perform OIDC token exchange.
-#
-# Runs on every push to main. The `select-mode` job inspects repo state and
-# picks what happens next:
-#   - changesets found          -> `version` job runs `changeset version`
-#     (bumps package.json, updates CHANGELOG.md, deletes the consumed
-#     changesets) and opens or updates a "Version Packages" pull request.
-#     Merging that PR triggers this workflow again, landing in publish mode.
-#   - new version not yet on
-#     npm (no changesets left) -> `pack` job builds and packs the packages
-#     (and the MCPB bundle for Claude Desktop); `publish` job publishes via
-#     OIDC, pushes git tags, creates a GitHub Release, and attaches the
-#     MCPB bundle to it.
-#   - nothing to do             -> all downstream jobs are skipped (no-op).
-#
-# Permissions follow the changesets trusted-publishing guidance: top-level
-# permissions are reset to none and each job receives only what it needs —
-# `id-token: write` exists solely on the publish job.
+# The pack job also builds the MCPB bundle for Claude Desktop, and the publish
+# job attaches it to the GitHub Release that changesets creates.
 
 on:
   push:
     branches: [main]
-  # Manual trigger: lets you re-run select-mode (e.g. to retry a publish
-  # after a transient failure) without pushing an empty commit.
   workflow_dispatch:
 
 concurrency:
@@ -46,21 +25,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read # to check out repo (actions/checkout)
+      contents: read
     outputs:
       mode: ${{ steps.select-mode.outputs.mode }}
       publish-plan-artifact-id: ${{ steps.select-mode.outputs.publish-plan-artifact-id }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false # recommended: do not persist git credentials on disk
-      - uses: actions/setup-node@v7
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: ".nvmrc"
       - run: npm ci
       - name: Select Changesets mode
         id: select-mode
-        uses: changesets/action/select-mode@v2
+        uses: changesets/action/select-mode@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
 
   version:
     name: Version Packages PR
@@ -69,20 +48,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # to commit version changes (changesets/action/version)
-      pull-requests: write # to create/update the Version Packages PR
+      contents: write
+      pull-requests: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: ".nvmrc"
           cache: npm
       - run: npm ci
       - name: Create or update the Version Packages pull request
         id: version
-        uses: changesets/action/version@v2
+        uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
 
   pack:
     name: Build and pack packages
@@ -91,23 +70,23 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: read # to check out repo (actions/checkout)
+      contents: read
     outputs:
       pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 24
+          node-version-file: ".nvmrc"
           cache: npm
       - run: npm ci
-      - run: npm run build
+      # pack:mcpb builds the server itself; no separate build step needed.
       - name: Pack MCPB bundle for Claude Desktop
         run: npm run pack:mcpb
       - name: Upload MCPB bundle artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mcpb-bundle
           path: "*.mcpb"
@@ -115,7 +94,7 @@ jobs:
           retention-days: 7
       - name: Pack packages for publishing
         id: pack
-        uses: changesets/action/pack@v2
+        uses: changesets/action/pack@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           publish-plan-artifact-id: ${{ needs.select-mode.outputs.publish-plan-artifact-id }}
 
@@ -123,35 +102,34 @@ jobs:
     name: Publish to npm
     needs: pack
     runs-on: ubuntu-latest
-    environment: release
     timeout-minutes: 15
+    environment: release
     permissions:
-      contents: write # to check out repo and create GitHub Releases (changesets/action/publish)
-      id-token: write # for OIDC trusted publishing
+      contents: write
+      id-token: write # OIDC trusted publishing + provenance
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-      # Node 24's bundled npm still may not satisfy npm >= 11.5.1 for OIDC.
+      # Node 24's bundled npm may not satisfy npm >= 11.5.1 for OIDC.
       - name: Upgrade npm for OIDC trusted publishing
         run: npm install -g npm@latest
       - run: npm ci
       - name: Download MCPB bundle artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: mcpb-bundle
           path: mcpb-bundle
       - name: Publish packed packages
-        uses: changesets/action/publish@v2
+        uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
           pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
       # changesets/action/publish creates the GitHub Release tagged
-      # v<version>; attach the MCPB bundle built by the pack job so users can
-      # one-click install into Claude Desktop.
+      # v<version>; attach the bundle so users can one-click install.
       - name: Attach MCPB bundle to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
