@@ -178,7 +178,10 @@ release bot and no pending-changeset queue.
   push to `main`. A `check` job compares `package.json`'s version against the
   npm registry; an unpublished version triggers one `release` job (environment
   `release`): metadata suite → build → `npm publish` via OIDC → pack `.mcpb`
-  → tag + GitHub Release + bundle attach. Already-published versions skip it.
+  → GitHub Release created **with** the bundle attached (releases are
+  immutable, so assets cannot be uploaded after creation) → `server.json`
+  published to the MCP Registry via `mcp-publisher login github-oidc`.
+  Already-published versions skip it.
   `workflow_dispatch` retries the release half; the publish step re-checks
   the registry, so it never double-publishes. CI never writes to a branch and
   never opens a PR — a `GITHUB_TOKEN`-opened PR runs no checks, which is how
