@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+### Patch Changes
+
+- Remove the Smithery and Glama distribution channels (smithery.yaml, Dockerfile, .dockerignore) and the README registries section; distribution is npm, the Claude Desktop MCPB bundle, and the Official MCP Registry.
+
 ## 0.2.0
 
 ### Minor Changes
