@@ -84,19 +84,6 @@ Every release ships an [MCPB bundle](https://github.com/anthropics/mcpb) —
 Download it and open it with Claude Desktop (macOS or Windows) to install
 with a single click.
 
-### Directories and registries
-
-- **Official MCP Registry** — listed as `io.github.knorby/inkeedecoder-mcp`
-  ([registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io));
-  metadata lives in `server.json`.
-- **Smithery** — `smithery.yaml` at the repo root; submit or install from
-  [smithery.ai](https://smithery.ai).
-- **Glama** — indexed from this repository at
-  [glama.ai/mcp/servers](https://glama.ai/mcp/servers); the `Dockerfile`
-  covers container-based installs.
-
-See `docs/publishing-registries.md` for how each channel is maintained.
-
 ### Configuration
 
 Every variable is optional. The defaults read inkeedecoder.com politely.

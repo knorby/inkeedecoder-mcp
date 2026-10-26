@@ -1,8 +1,8 @@
-# Publishing to the MCP registries
+# Publishing: npm, Claude Desktop, and the MCP Registry
 
-How this repository reaches the [Official MCP
-Registry](https://registry.modelcontextprotocol.io), Claude Desktop, Smithery,
-and Glama — and which steps are automatic versus manual.
+How this repository ships: the npm package and the `.mcpb` bundle are
+automatic; the [Official MCP Registry](https://registry.modelcontextprotocol.io)
+listing is a manual step (it is **not** part of the release workflow).
 
 ## Version consistency
 
@@ -34,10 +34,3 @@ validation fails.
 enter the bundle). The release workflow builds and attaches the bundle to the
 GitHub Release; users double-click it to install into Claude Desktop (the
 format was formerly DXT; see <https://github.com/anthropics/mcpb>).
-
-## Smithery and Glama
-
-`smithery.yaml` describes the stdio server for Smithery's directory;
-`Dockerfile` serves Smithery's container runtime and the Glama scanner. These
-formats move faster than the rest of the repo — re-check each provider's
-current docs before changing them.

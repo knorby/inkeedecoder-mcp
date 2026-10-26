@@ -1,3 +1,8 @@
+# SUPERSEDED (2026-10-26): Smithery and Glama channels removed — Smithery no
+# longer supports repo-file-based listing, and Glama offers nothing this repo
+# needs. npm + MCPB + Official MCP Registry remain, per this ADR's other
+# decisions. The text below is the record as originally accepted.
+
 # ADR-0004: Distribution channels and registry metadata
 
 - **Status:** Accepted

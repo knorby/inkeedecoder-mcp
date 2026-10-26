@@ -190,9 +190,8 @@ release bot and no pending-changeset queue.
 
 ### Distribution metadata
 
-Repo-root `server.json` (Official MCP Registry), `manifest.json` (MCPB for
-Claude Desktop), `smithery.yaml` (Smithery), and the `Dockerfile` (Smithery
-container / Glama) repeat name and version values from `package.json`.
+Repo-root `server.json` (Official MCP Registry) and `manifest.json` (MCPB for
+Claude Desktop) repeat name and version values from `package.json`.
 `tests/metadata.test.ts` pins every relationship — a version bump that
 misses one of them fails the suite. `package.json` also carries `mcpName`
 (`io.github.knorby/inkeedecoder-mcp`), the registry's ownership marker.
@@ -203,9 +202,6 @@ After each npm release:
 - publishing to the Official MCP Registry is manual: `mcp-publisher login
   github` once, then `mcp-publisher validate && mcp-publisher publish` from
   the repo root (see `docs/publishing-registries.md`);
-- Smithery and Glama pick the repo up from their scanners — no publish step,
-  but re-check their current docs before editing `smithery.yaml` or the
-  `Dockerfile`.
 
 ### One-time release setup (repository owner)
 
