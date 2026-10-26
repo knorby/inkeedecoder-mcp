@@ -99,11 +99,27 @@ jobs:
       - name: Pack MCPB bundle for Claude Desktop
         run: npm run pack:mcpb
 
-      - name: Attach MCPB bundle to the GitHub Release
+      # This repo has immutable releases on, so assets MUST ride the create
+      # call - uploading to an already-published release returns HTTP 422.
+      - name: Create the GitHub Release with the MCPB bundle
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          gh release view "v${VERSION}" >/dev/null 2>&1 \
-            || gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes
-          gh release upload "v${VERSION}" ./*.mcpb --clobber
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "release exists; attempting upload (only works with mutable releases)"
+            gh release upload "v${VERSION}" ./*.mcpb --clobber
+          else
+            gh release create "v${VERSION}" --title "v${VERSION}" --generate-notes ./*.mcpb
+          fi
+
+      # MCP Registry (registry.modelcontextprotocol.io) hosts metadata only;
+      # the npm package above is the artifact, so publish after npm. OIDC
+      # login needs the job's id-token: write - no secret involved.
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+      - name: Authenticate to the MCP Registry (OIDC)
+        run: ./mcp-publisher login github-oidc
+      - name: Publish server.json to the MCP Registry
+        run: ./mcp-publisher publish

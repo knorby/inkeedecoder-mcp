@@ -1,8 +1,8 @@
 # Publishing: npm, Claude Desktop, and the MCP Registry
 
-How this repository ships: the npm package and the `.mcpb` bundle are
-automatic; the [Official MCP Registry](https://registry.modelcontextprotocol.io)
-listing is a manual step (it is **not** part of the release workflow).
+How this repository ships: the npm package, the `.mcpb` bundle, and the
+[Official MCP Registry](https://registry.modelcontextprotocol.io) listing are
+all published automatically by the release workflow.
 
 ## Version consistency
 
@@ -12,14 +12,15 @@ release that bumps one file and not the others fails the suite at PR time.
 
 ## Official MCP Registry
 
-The registry hosts **metadata only**; the npm package is the artifact. After
-each npm release:
+The registry hosts **metadata only**; the npm package is the artifact. The
+release job publishes `server.json` right after npm: it downloads
+`mcp-publisher`, authenticates with `login github-oidc` (the job's
+`id-token: write` — no secret, no PAT), and runs `mcp-publisher publish`.
+Because auth is GitHub-OIDC, the server name must stay under
+`io.github.knorby/`, which `mcpName` in `package.json` pins.
 
-1. Install the publisher CLI (once): `brew install mcp-publisher`.
-2. Authenticate with GitHub (once): `mcp-publisher login github` — device
-   login flow. GitHub auth means the server name must stay under
-   `io.github.knorby/`, which `mcpName` in `package.json` pins.
-3. From the repo root: `mcp-publisher validate`, then `mcp-publisher publish`.
+Manual fallback (local): `brew install mcp-publisher`, then
+`mcp-publisher login github && mcp-publisher publish` from the repo root.
 
 `server.json` carries the schema `2025-12-11`, the npm package reference, the
 stdio transport, and the three optional `INKEEDECODER_*` environment
