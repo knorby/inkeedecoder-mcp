@@ -1,4 +1,7 @@
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -66,5 +69,81 @@ describe("release workflow registry contract", () => {
     expect(registryJob).toContain("mcpName");
     expect(registryJob).toContain("npm.json");
     expect(releaseJob).not.toContain("./mcp-publisher");
+  });
+
+  it("accepts registry-omitted false defaults without accepting package drift", () => {
+    expect(registryJob).toContain(
+      "node scripts/check-registry-record.mjs server.json registry.json",
+    );
+
+    const directory = mkdtempSync(join(tmpdir(), "registry-record-"));
+    const localPath = join(directory, "server.json");
+    const registryPath = join(directory, "registry.json");
+    const scriptPath = new URL(
+      "../scripts/check-registry-record.mjs",
+      import.meta.url,
+    ).pathname;
+
+    const localServer = {
+      name: "io.github.knorby/inkeedecoder-mcp",
+      version: "0.2.1",
+      packages: [
+        {
+          registryType: "npm",
+          identifier: "@knorby/inkeedecoder-mcp",
+          version: "0.2.1",
+          transport: { type: "stdio" },
+          environmentVariables: [
+            {
+              name: "INKEEDECODER_TIMEOUT_MS",
+              description: "Per-request timeout in milliseconds.",
+              isRequired: false,
+              format: "number",
+              isSecret: false,
+            },
+          ],
+        },
+      ],
+    };
+    const normalizedByRegistry = {
+      server: {
+        name: "io.github.knorby/inkeedecoder-mcp",
+        version: "0.2.1",
+        packages: [
+          {
+            registryType: "npm",
+            identifier: "@knorby/inkeedecoder-mcp",
+            version: "0.2.1",
+            transport: { type: "stdio" },
+            environmentVariables: [
+              {
+                name: "INKEEDECODER_TIMEOUT_MS",
+                description: "Per-request timeout in milliseconds.",
+                format: "number",
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    writeFileSync(localPath, JSON.stringify(localServer));
+    writeFileSync(registryPath, JSON.stringify(normalizedByRegistry));
+    const accepted = spawnSync(process.execPath, [
+      scriptPath,
+      localPath,
+      registryPath,
+    ]);
+    expect(accepted.status).toBe(0);
+
+    normalizedByRegistry.server.packages[0].environmentVariables[0].isSecret = true;
+    writeFileSync(registryPath, JSON.stringify(normalizedByRegistry));
+    const rejected = spawnSync(
+      process.execPath,
+      [scriptPath, localPath, registryPath],
+      { encoding: "utf8" },
+    );
+    expect(rejected.status).toBe(1);
+    expect(rejected.stderr).toContain("published registry packages differs");
   });
 });

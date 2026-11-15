@@ -225,13 +225,4 @@ jobs:
         run: |
           REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.knorby%2Finkeedecoder-mcp/versions/${VERSION}"
           curl --fail --location --silent --show-error --max-time 20 --retry 6 --retry-delay 5 --retry-all-errors --output registry.json "$REGISTRY_URL"
-          node <<'NODE'
-          import assert from "node:assert/strict";
-          import { readFileSync } from "node:fs";
-
-          const local = JSON.parse(readFileSync("server.json", "utf8"));
-          const published = JSON.parse(readFileSync("registry.json", "utf8"));
-          for (const field of ["name", "version", "packages"]) {
-            assert.deepEqual(published.server?.[field], local[field], `published registry ${field} differs`);
-          }
-          NODE
+          node scripts/check-registry-record.mjs server.json registry.json
