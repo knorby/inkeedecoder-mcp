@@ -29,7 +29,10 @@ job verifies the exact npm version and its `mcpName` ownership marker. It then
 runs `mcp-publisher validate`, installs a pinned `mcp-publisher` release and
 verifies its Sigstore bundle, authenticates with `login github-oidc` (the job's
 `id-token: write` — no secret, no PAT), publishes, and reads the stored record
-back through the same URL. Because auth is GitHub-OIDC, the server name must
+back through the same URL. The public API omits default `isRequired: false` and
+`isSecret: false` fields, so the read-back comparison normalizes those defaults
+while still checking `name`, `version`, and the complete package entry. Because
+auth is GitHub-OIDC, the server name must
 stay under `io.github.knorby/`, which `mcpName` in `package.json` pins.
 
 A failed registry job can be rerun on the same version; no new npm release or
