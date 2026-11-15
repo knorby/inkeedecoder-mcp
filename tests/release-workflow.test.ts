@@ -31,7 +31,7 @@ describe("release workflow registry contract", () => {
   it("keeps registry publication least-privileged and environment-free", () => {
     expect(registryJob).toContain("contents: read");
     expect(registryJob).toContain("id-token: write");
-    expect(registryJob).not.toMatch(/\n    environment:/);
+    expect(registryJob).not.toMatch(/\n {4}environment:/);
     expect(registryJob).not.toContain(
       "id-token: write # OIDC trusted publishing + provenance",
     );
