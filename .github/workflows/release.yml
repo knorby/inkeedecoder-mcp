@@ -4,7 +4,9 @@ name: Release
 # package.json's version against the npm registry; if it is unpublished, the
 # `release` job runs the metadata suite (version pins across package.json /
 # server.json / manifest.json), builds, publishes to npm via OIDC, and
-# attaches the `.mcpb` bundle to the `v<version>` GitHub Release.
+# attaches the `.mcpb` bundle to the `v<version>` GitHub Release. The
+# `mcp-registry` job then publishes server.json after any release outcome, so
+# an already-published npm version can still be registered or backfilled.
 #
 # The version bump travels in the release PR — CI never writes to a branch
 # and never opens a PR (a GITHUB_TOKEN-opened PR runs no checks, which is how
@@ -114,12 +116,122 @@ jobs:
           fi
 
       # MCP Registry (registry.modelcontextprotocol.io) hosts metadata only;
-      # the npm package above is the artifact, so publish after npm. OIDC
-      # login needs the job's id-token: write - no secret involved.
-      - name: Install mcp-publisher
+      # the npm package above is the artifact. The dedicated mcp-registry job
+      # publishes server.json independently, so a skipped or failed release
+      # attempt cannot strand an npm version without a registry record.
+  mcp-registry:
+    needs: [check, release]
+    name: Publish to the MCP Registry
+    if: always() && needs.check.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.9
+      VERSION: ${{ needs.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Check the MCP Registry record
+        id: registry
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-      - name: Authenticate to the MCP Registry (OIDC)
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.knorby%2Finkeedecoder-mcp/versions/${VERSION}"
+          HTTP_STATUS="$(curl --silent --show-error --location --max-time 20 --retry 6 --retry-delay 5 --output registry-existing.json --write-out '%{http_code}' "$REGISTRY_URL")"
+          case "$HTTP_STATUS" in
+            200)
+              echo "registry record already published (${VERSION})"
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              ;;
+            404)
+              echo "registry record missing (${VERSION})"
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "unexpected registry status ${HTTP_STATUS} for ${VERSION}; refusing to publish" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Check published npm metadata
+        if: steps.registry.outputs.published == 'false'
+        run: |
+          for ATTEMPT in 1 2 3 4 5 6; do
+            if npm view "@knorby/inkeedecoder-mcp@${VERSION}" version mcpName --json > npm.json; then
+              break
+            fi
+            if [ "$ATTEMPT" -eq 6 ]; then
+              echo "npm has not published ${VERSION} after ${ATTEMPT} attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          node <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+
+          const server = JSON.parse(readFileSync("server.json", "utf8"));
+          const npm = JSON.parse(readFileSync("npm.json", "utf8"));
+          const version = process.env.VERSION;
+
+          assert.equal(npm.version, version);
+          assert.equal(server.version, version);
+          assert.equal(npm.mcpName, "io.github.knorby/inkeedecoder-mcp");
+          assert.equal(server.name, "io.github.knorby/inkeedecoder-mcp");
+          assert.equal(server.packages.length, 1);
+          assert.equal(server.packages[0].registryType, "npm");
+          assert.equal(server.packages[0].identifier, "@knorby/inkeedecoder-mcp");
+          assert.equal(server.packages[0].version, version);
+          NODE
+
+      - name: Install cosign
+        if: steps.registry.outputs.published == 'false'
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+
+      - name: Download and verify registry publisher
+        if: steps.registry.outputs.published == 'false'
+        run: |
+          ARCHIVE="mcp-publisher_linux_amd64.tar.gz"
+          BASE="https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}"
+          curl --fail --location --silent --show-error --max-time 60 --retry 6 --retry-delay 5 --output "$ARCHIVE" "$BASE/$ARCHIVE"
+          curl --fail --location --silent --show-error --max-time 60 --retry 6 --retry-delay 5 --output "$ARCHIVE.sigstore.json" "$BASE/$ARCHIVE.sigstore.json"
+          cosign verify-blob \
+            --bundle "$ARCHIVE.sigstore.json" \
+            --certificate-identity "https://github.com/modelcontextprotocol/registry/.github/workflows/release.yml@refs/tags/${MCP_PUBLISHER_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            "$ARCHIVE"
+          tar xzf "$ARCHIVE" mcp-publisher
+
+      - name: Validate registry manifest
+        if: steps.registry.outputs.published == 'false'
+        run: ./mcp-publisher validate
+
+      - name: Authenticate to MCP Registry
+        if: steps.registry.outputs.published == 'false'
         run: ./mcp-publisher login github-oidc
-      - name: Publish server.json to the MCP Registry
+
+      - name: Publish registry metadata
+        if: steps.registry.outputs.published == 'false'
         run: ./mcp-publisher publish
+
+      - name: Verify published registry record
+        if: steps.registry.outputs.published == 'false'
+        run: |
+          REGISTRY_URL="https://registry.modelcontextprotocol.io/v0.1/servers/io.github.knorby%2Finkeedecoder-mcp/versions/${VERSION}"
+          curl --fail --location --silent --show-error --max-time 20 --retry 6 --retry-delay 5 --retry-all-errors --output registry.json "$REGISTRY_URL"
+          node <<'NODE'
+          import assert from "node:assert/strict";
+          import { readFileSync } from "node:fs";
+
+          const local = JSON.parse(readFileSync("server.json", "utf8"));
+          const published = JSON.parse(readFileSync("registry.json", "utf8"));
+          for (const field of ["name", "version", "packages"]) {
+            assert.deepEqual(published.server?.[field], local[field], `published registry ${field} differs`);
+          }
+          NODE
