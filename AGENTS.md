@@ -170,23 +170,29 @@ scanning). Both are needed for full coverage.
 Releases are cut by a **version bump in a pull request** — there is no
 release bot and no pending-changeset queue.
 
-- **To cut a release**: in the release PR, bump `version` in **all three** of
-  `package.json`, `server.json`, and `manifest.json` (pinned equal by
-  `tests/metadata.test.ts`; the suite goes red until they match) and add the
-  `CHANGELOG.md` entry. Merging the PR publishes.
+- **To cut a release**: in the release PR, bump the version in `package.json`,
+  both `package-lock.json` version fields, `server.json`, and `manifest.json`
+  (pinned equal by `tests/metadata.test.ts`; the suite goes red until they
+  match) and add the `CHANGELOG.md` entry. Merging the PR publishes.
 - **GitHub Actions release** (`.github/workflows/release.yml`): runs on every
   push to `main`. A `check` job compares `package.json`'s version against the
   npm registry; an unpublished version triggers one `release` job (environment
   `release`): metadata suite → build → `npm publish` via OIDC → pack `.mcpb`
   → GitHub Release created **with** the bundle attached (releases are
-  immutable, so assets cannot be uploaded after creation) → `server.json`
-  published to the MCP Registry via `mcp-publisher login github-oidc`.
-  Already-published versions skip it.
+  immutable, so assets cannot be uploaded after creation). A separate
+  `mcp-registry` job then runs after **any** release outcome. It reads the
+  exact registry version first: 200 skips publication, 404 verifies the npm
+  package's version and `mcpName`, then validates `server.json`, installs a
+  pinned signature-verified `mcp-publisher`, authenticates with GitHub OIDC,
+  publishes, and reads the record back. An already-published npm version can
+  therefore be registered or backfilled without a new release, and a failed
+  registry job can be rerun without another version bump.
   `workflow_dispatch` retries the release half; the publish step re-checks
   the registry, so it never double-publishes. CI never writes to a branch and
   never opens a PR — a `GITHUB_TOKEN`-opened PR runs no checks, which is how
   a drifted changeset-release PR once reached npm. No PAT or repository
-  secret is involved. `id-token: write` is scoped to the release job only.
+  secret is involved. `id-token: write` is scoped to the release and registry
+  jobs only.
 - **Always verify before publishing**: `npm run build && npm pack --dry-run`
   to confirm only `dist/`, `README.md`, `CHANGELOG.md`, `LICENSE`, and
   `SKILL.md` are included.
@@ -202,9 +208,9 @@ misses one of them fails the suite. `package.json` also carries `mcpName`
 After each npm release:
 
 - the release workflow attaches the `.mcpb` bundle to the GitHub Release;
-- publishing to the Official MCP Registry is manual: `mcp-publisher login
-  github` once, then `mcp-publisher validate && mcp-publisher publish` from
-  the repo root (see `docs/publishing-registries.md`);
+- the separate `mcp-registry` job publishes or backfills the Official MCP
+  Registry record and verifies it through the public API (see
+  `docs/publishing-registries.md`);
 
 ### One-time release setup (repository owner)
 
