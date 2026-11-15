@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- Update the locked `@modelcontextprotocol/server` and `@modelcontextprotocol/client` packages to `2.4.0` and include routine development dependency updates. Release tooling now publishes the Official MCP Registry record in a dedicated job that also backfills or verifies it on every run.
+
 ## 0.2.1
 
 ### Patch Changes
